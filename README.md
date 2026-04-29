@@ -6,11 +6,11 @@ A pipeline for generating, running, and evaluating LLM benchmarks focused on **s
 
 ## Tasks
 
-| Name | Description | Difficulty axis |
-|---|---|---|
-| `collisions` | Track particle velocities through elastic collisions | `m` particles = `n` collision steps |
-| `astro` | Track variable→planet mappings through swap operations over an exoplanet table | `m` table rows = `n` swaps |
-| `olmo_original` | State-based recall from the OLMo Hybrid paper: track 5 pointer variables through swaps, then index into a bit array | `n` swaps = `m` bit-array size |
+| Name | Description | `m` | `n` |
+|---|---|---|---|
+| `collisions` | Track particle velocities through elastic collisions | number of particles | number of collision steps |
+| `astro` | Track variable→planet mappings through swap operations over an exoplanet table | number of table rows | number of swaps |
+| `olmo_original` | State-based recall from the OLMo Hybrid paper: track 5 pointer variables through swaps, then index into a bit array | bit-array size | number of swap lines |
 
 All tasks output **4-option multiple choice (A/B/C/D)**.
 
@@ -19,14 +19,16 @@ All tasks output **4-option multiple choice (A/B/C/D)**.
 ## Repository structure
 
 ```
-├── utils.py          # Shared helpers (JSON I/O, answer parsing, vLLM loading)
-├── templates.py      # Task definitions — all prompts and generators live here
-├── generator.py      # Generate evaluation datasets (no GPU needed)
-├── inference.py      # Run a model over a dataset (requires GPU + vLLM)
-├── inference.sh      # SLURM job script for HPC clusters
-├── eval.py           # Compute accuracy from inference output
-├── paper_plots.py    # Generate publication figures
-└── data/             # Default output directory for generated datasets
+├── src/
+│   ├── utils.py          # Shared helpers (JSON I/O, answer parsing, vLLM loading)
+│   ├── templates.py      # Task definitions — all prompts and generators live here
+│   ├── generator.py      # Generate evaluation datasets (no GPU needed)
+│   ├── inference.py      # Run a model over a dataset (requires GPU + vLLM)
+│   ├── inference.sh      # SLURM job script for HPC clusters
+│   ├── eval.py           # Compute accuracy from inference output
+│   └── paper_plots.py    # Generate publication figures
+├── data/                 # Generated datasets (auto-created)
+└── results/              # Inference and eval outputs
 ```
 
 ---
@@ -57,13 +59,16 @@ cd <repo-name>
 
 ### Exoplanet CSV (for `astro` task only)
 
-The `astro` task requires an exoplanet CSV file. Set the path in one of two ways:
+The `astro` task requires an exoplanet CSV file placed in the same folder as `templates.py`, or set the path explicitly:
 
 ```bash
-# Option 1 — environment variable (persists for the session)
+# Option 1 — place the file next to templates.py (default)
+cp exoplanets.csv src/
+
+# Option 2 — environment variable
 export EXOPLANETS_CSV=/path/to/exoplanets.csv
 
-# Option 2 — pass it directly at generation time
+# Option 3 — pass it at generation time
 python generator.py --task astro --csv-path /path/to/exoplanets.csv ...
 ```
 
@@ -74,26 +79,27 @@ The CSV must contain these columns:
 
 ## Step 1 — Generate a dataset
 
-Run locally (no GPU needed). Output goes to `data/` by default.
+Run locally (no GPU needed). Output goes to `data/` by default (one level up from `src/`).
 
 ```bash
-# Collision task — 100 samples at each of 4 difficulty levels
+# Collision task — 100 samples per (m, n) pair, m and n swept together
 python generator.py \
     --task collisions \
     --n-samples 100 \
-    --difficulties 4 8 16 32
+    --m 4 8 16 32
 
-# OLMo original state-based recall task
+# olmo_original — vary m and n independently
 python generator.py \
     --task olmo_original \
     --n-samples 100 \
-    --difficulties 4 8 16 32 64
+    --m 16 32 64 \
+    --n 4 8 16 32
 
 # Astro task with explicit CSV path
 python generator.py \
     --task astro \
     --n-samples 100 \
-    --difficulties 4 8 16 \
+    --m 4 8 16 \
     --csv-path /path/to/exoplanets.csv
 ```
 
@@ -102,14 +108,15 @@ python generator.py \
 | Flag | Default | Description |
 |---|---|---|
 | `--task` | required | `collisions`, `astro`, or `olmo_original` |
-| `--n-samples` | `100` | Samples per difficulty level |
-| `--difficulties` | `4 8 16` | Space-separated list of difficulty values |
-| `--output-dir` | `data/` inside repo | Directory to save the JSON file |
+| `--n-samples` | `100` | Samples per `(m, n)` pair |
+| `--m` | `4 8 16` | Space-separated list of `m` values |
+| `--n` | same as `--m` | Space-separated list of `n` values (defaults to `--m` if omitted) |
+| `--output-dir` | `../data/` relative to script | Directory to save the JSON file |
 | `--output` | auto-named | Override the output filename |
-| `--csv-path` | env var / compiled default | Path to exoplanet CSV (`astro` only) |
+| `--csv-path` | env var / script-relative default | Path to exoplanet CSV (`astro` only) |
 | `--seed` | `42` | Random seed for reproducibility |
 
-Output is a single JSON file, e.g. `data/collisions_diff4_8_16_n100.json`.
+A sample is generated for every `(m, n)` pair in the cartesian product of `--m` and `--n`. Output is a single JSON file, e.g. `data/collisions_m4_8_16_n4_8_16_s100.json`.
 
 ---
 
@@ -119,24 +126,23 @@ Output is a single JSON file, e.g. `data/collisions_diff4_8_16_n100.json`.
 
 ```bash
 python inference.py \
-    --input  data/collisions_diff4_8_16_n100.json \
+    --input  data/collisions_m4_8_16_n4_8_16_s100.json \
     --model  allenai/Olmo-3-7B-Think \
     --output results/collisions_olmo3think.json
 ```
 
-### On a SLURM cluster (Marvin)
+### On a SLURM cluster
 
 ```bash
 sbatch inference.sh \
-    --input  /path/to/data/collisions_diff4_8_16_n100.json \
+    --input  /path/to/data/collisions_m4_8_16_n4_8_16_s100.json \
     --model  allenai/Olmo-3-7B-Think \
     --output /path/to/results/collisions_olmo3think.json
 ```
 
-Before submitting, check these two variables at the top of `inference.sh` match your cluster setup:
+Before submitting, update this variable at the top of `inference.sh` to match your cluster:
 
 ```bash
-CONDA_ENV="your_env_name"
 HF_CACHE="/path/to/.cache/huggingface"
 ```
 
@@ -163,7 +169,7 @@ python eval.py \
     --output scores/collisions_olmo3think_eval.json
 ```
 
-Prints a summary to stdout and writes a JSON file with overall accuracy and per-difficulty breakdown.
+Prints a summary to stdout and writes a JSON file with overall accuracy and a per `(m, n)` breakdown.
 
 Add `--no-samples` to omit per-sample detail and keep the output file small.
 
@@ -185,12 +191,12 @@ Produces three figures (line plot, bar chart, heatmap) in both `.pdf` and `.png`
 
 ```bash
 # 1. Generate
-python generator.py --task olmo_original --n-samples 100 --difficulties 4 8 16 32 64
+python generator.py --task olmo_original --n-samples 100 --m 4 8 16 32 64
 
 # 2. Copy to cluster and run inference
-scp data/olmo_original_diff4_8_16_32_64_n100.json marvin:/path/to/data/
+scp data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json marvin:/path/to/data/
 sbatch inference.sh \
-    --input  /path/to/data/olmo_original_diff4_8_16_32_64_n100.json \
+    --input  /path/to/data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json \
     --model  allenai/Olmo-Hybrid-Think-SFT-7B \
     --output /path/to/results/sbr_hybrid_think.json
 
@@ -199,7 +205,7 @@ scp marvin:/path/to/results/sbr_hybrid_think.json results/
 python eval.py --input results/sbr_hybrid_think.json
 
 # 4. Plot
-python paper_plots.py --inputs results/*_eval.json --output-dir figures/
+python paper_plots.py --inputs scores/*_eval.json --output-dir figures/
 ```
 
 ---
@@ -208,7 +214,7 @@ python paper_plots.py --inputs results/*_eval.json --output-dir figures/
 
 All tasks are defined in `templates.py`. To add one:
 
-1. Write a generator function `my_task_generator(difficulty: int, rng: random.Random) -> dict` that returns a dict with keys `prompt`, `correct_option`, `option_A`–`option_D`, and `metadata`.
+1. Write a generator function `my_task_generator(m: int, n: int, rng: random.Random) -> dict` that returns a dict with keys `prompt`, `correct_option`, `option_A`–`option_D`, and `metadata`.
 2. Add a system prompt string.
 3. Register it in `_REGISTRY` at the bottom of the file.
 
