@@ -38,48 +38,55 @@ def generate_dataset(
     n_values: list[int],
     seed: int = 42,
     csv_path: str | None = None,
+    mode: str = "zip",
 ) -> list[dict]:
     """
     Generate *n_samples* per (m, n) pair.
-    Returns a flat list of sample dicts.
+
+    mode='zip'       — pairs m and n together: (4,4),(8,8),(16,16)
+    mode='cartesian' — all combinations:       (4,4),(4,8),(8,4),(8,8)
     """
     task = get_task(task_name, csv_path=csv_path)
     rng = random.Random(seed)
     samples = []
 
-    for m in m_values:
-        for n in n_values:
-            print(f"  Generating {n_samples} samples at m={m}, n={n} …", flush=True)
-            generated = 0
-            attempts = 0
-            max_attempts = n_samples * 20
+    if mode == "zip":
+        pairs = list(zip(m_values, n_values))
+    else:
+        pairs = [(m, n) for m in m_values for n in n_values]
 
-            while generated < n_samples and attempts < max_attempts:
-                attempts += 1
-                try:
-                    sample = task.generate_sample(m=m, n=n, rng=rng)
-                except Exception as e:
-                    print(f"    [warn] generation failed: {e}", file=sys.stderr)
-                    continue
+    for m, n in pairs:
+        print(f"  Generating {n_samples} samples at m={m}, n={n} …", flush=True)
+        generated = 0
+        attempts = 0
+        max_attempts = n_samples * 20
 
-                sample.update(
-                    {
-                        "task": task_name,
-                        "m": m,
-                        "n": n,
-                        "system_prompt": task.system_prompt,
-                        "sample_id": len(samples),
-                    }
-                )
-                samples.append(sample)
-                generated += 1
+        while generated < n_samples and attempts < max_attempts:
+            attempts += 1
+            try:
+                sample = task.generate_sample(m=m, n=n, rng=rng)
+            except Exception as e:
+                print(f"    [warn] generation failed: {e}", file=sys.stderr)
+                continue
 
-            if generated < n_samples:
-                print(
-                    f"  [warn] Only generated {generated}/{n_samples} samples "
-                    f"at m={m}, n={n} (too many failures).",
-                    file=sys.stderr,
-                )
+            sample.update(
+                {
+                    "task": task_name,
+                    "m": m,
+                    "n": n,
+                    "system_prompt": task.system_prompt,
+                    "sample_id": len(samples),
+                }
+            )
+            samples.append(sample)
+            generated += 1
+
+        if generated < n_samples:
+            print(
+                f"  [warn] Only generated {generated}/{n_samples} samples "
+                f"at m={m}, n={n} (too many failures).",
+                file=sys.stderr,
+            )
 
     return samples
 
@@ -133,6 +140,17 @@ def main():
         help="Output filename override. Defaults to <task>_m<vals>_n<vals>_s<n_samples>.json.",
     )
     parser.add_argument(
+        "--mode",
+        choices=["zip", "cartesian"],
+        default="zip",
+        help=(
+            "How to combine --m and --n values. "
+            "'zip' pairs them together: (4,4),(8,8),(16,16). "
+            "'cartesian' generates all combinations: (4,4),(4,8),(8,4),(8,8). "
+            "(default: zip)"
+        ),
+    )
+    parser.add_argument(
         "--csv-path",
         default=None,
         help="Path to exoplanet CSV (astro task only). Overrides EXOPLANETS_CSV env var.",
@@ -170,6 +188,7 @@ def main():
         output_path = os.path.join(args.output_dir, filename)
 
     print(f"Task       : {args.task}")
+    print(f"Mode       : {args.mode}")
     print(f"m values   : {args.m}")
     print(f"n values   : {args.n}")
     print(f"Samples/(m,n): {args.n_samples}")
@@ -186,6 +205,7 @@ def main():
         n_values=args.n,
         seed=args.seed,
         csv_path=args.csv_path,
+        mode=args.mode,
     )
 
     save_json(samples, output_path)

@@ -81,19 +81,32 @@ The CSV must contain these columns:
 
 Run locally (no GPU needed). Output goes to `data/` by default (one level up from `src/`).
 
+Use `--mode` to control how `m` and `n` are combined:
+- `zip` *(default)* — pairs them together: `(4,4)`, `(8,8)`, `(16,16)`
+- `cartesian` — all combinations: `(4,4)`, `(4,8)`, `(8,4)`, `(8,8)`
+
 ```bash
-# Collision task — 100 samples per (m, n) pair, m and n swept together
+# zip mode (default) — only (4,4),(8,8),(16,16),(32,32)
 python generator.py \
     --task collisions \
     --n-samples 100 \
     --m 4 8 16 32
 
-# olmo_original — vary m and n independently
+# cartesian mode — all 16 combinations of m and n
+python generator.py \
+    --task collisions \
+    --n-samples 100 \
+    --m 4 8 16 32 \
+    --n 4 8 16 32 \
+    --mode cartesian
+
+# olmo_original — different m and n ranges in cartesian mode
 python generator.py \
     --task olmo_original \
     --n-samples 100 \
     --m 16 32 64 \
-    --n 4 8 16 32
+    --n 4 8 16 \
+    --mode cartesian
 
 # Astro task with explicit CSV path
 python generator.py \
@@ -111,12 +124,13 @@ python generator.py \
 | `--n-samples` | `100` | Samples per `(m, n)` pair |
 | `--m` | `4 8 16` | Space-separated list of `m` values |
 | `--n` | same as `--m` | Space-separated list of `n` values (defaults to `--m` if omitted) |
+| `--mode` | `zip` | `zip` = pair m and n together, `cartesian` = all combinations |
 | `--output-dir` | `../data/` relative to script | Directory to save the JSON file |
 | `--output` | auto-named | Override the output filename |
 | `--csv-path` | env var / script-relative default | Path to exoplanet CSV (`astro` only) |
 | `--seed` | `42` | Random seed for reproducibility |
 
-A sample is generated for every `(m, n)` pair in the cartesian product of `--m` and `--n`. Output is a single JSON file, e.g. `data/collisions_m4_8_16_n4_8_16_s100.json`.
+Output is a single JSON file, e.g. `data/collisions_m4_8_16_n4_8_16_s100.json`.
 
 ---
 

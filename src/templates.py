@@ -335,7 +335,7 @@ def _astro_generator(m: int, n: int, rng: random.Random, csv_path: str = _DEFAUL
     planets = _load_planets(csv_path)
     if len(planets) < num_rows:
         raise ValueError(
-            f"CSV has only {len(planets)} valid rows but difficulty={difficulty} "
+            f"CSV has only {len(planets)} valid rows but m={m} "
             f"requires {num_rows}."
         )
     chosen = rng.sample(planets, num_rows)
