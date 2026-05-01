@@ -58,7 +58,7 @@ def load_eval_file(path: str) -> dict:
         return json.load(f)
 
 
-def collect_series(eval_files):
+def collect_series(eval_files, max_m=None):
     series = {}
     for path in sorted(eval_files):
         data = load_eval_file(path)
@@ -73,16 +73,15 @@ def collect_series(eval_files):
                 m, n = int(m_str), int(n_str)
             except ValueError:
                 continue
+            if max_m is not None and m > max_m:
+                continue                          # ← skip beyond cap
             if d.get("accuracy") is not None:
                 acc_by_mn[(m, n)] = d["accuracy"]
             if d.get("parsed_weighted_accuracy") is not None:
                 pwa_by_mn[(m, n)] = d["parsed_weighted_accuracy"]
 
         if acc_by_mn:
-            series[short] = {
-                "accuracy": acc_by_mn,
-                "pwa": pwa_by_mn,
-            }
+            series[short] = {"accuracy": acc_by_mn, "pwa": pwa_by_mn}
 
     return series
 
@@ -280,6 +279,10 @@ def main():
         "--no-heatmap", action="store_true",
         help="Skip the heatmap (useful with many models).",
     )
+    parser.add_argument(
+    "--max-m", type=int, default=None,
+    help="Cap plots at this m value (e.g. 2048 to exclude larger difficulties).",
+    )
     args = parser.parse_args()
 
     # Expand any globs
@@ -297,7 +300,7 @@ def main():
     for f in eval_files:
         print(f"  {f}")
 
-    series = collect_series(eval_files)
+    series = collect_series(eval_files, max_m=args.max_m)
     if not series:
         print("No plottable data found in the provided eval files.")
         return

@@ -171,8 +171,15 @@ python check_token_lengths.py --data-dir /path/to/data
 ```
 
 This prints `m`, `n`, and token count for every difficulty level in every matching file.
-Use the largest token count + 256 (for generation) as your `--max-model-len` when
-submitting inference jobs.
+
+**Setting `--max-model-len` for inference:**
+- For **instruct models**: use `largest_prompt_tokens + 256`
+- For **thinking models**: use `largest_prompt_tokens + 4000` (thinking traces are long)
+- Make sure the total stays within the model's context window (OLMo models: 32k)
+
+> **Example:** At `m=2500` the prompt is ~27,580 tokens.
+> Instruct models: `27580 + 256 = 27836` → use `--max-model-len 28000`
+> Thinking models: `27580 + 4000 = 31580` → use `--max-model-len 32000`
 
 ---
 
@@ -183,7 +190,7 @@ submitting inference jobs.
 ```bash
 python inference.py \
     --input  data/collisions_m4_8_16_n4_8_16_s100.json \
-    --model  allenai/Olmo-3-7B-Think \
+    --model  allenai/OLMo-3-7B-Think \
     --output results/collisions_olmo3think.json
 ```
 
@@ -192,7 +199,7 @@ python inference.py \
 ```bash
 sbatch inference.sh \
     --input  /path/to/data/collisions_m4_8_16_n4_8_16_s100.json \
-    --model  allenai/Olmo-3-7B-Think \
+    --model  allenai/OLMo-3-7B-Think \
     --output /path/to/results/collisions_olmo3think.json
 ```
 
@@ -211,9 +218,12 @@ HF_CACHE="/path/to/.cache/huggingface"
 | `--output` | auto-named | Output JSON path |
 | `--batch-size` | `8` | vLLM generation batch size |
 | `--max-model-len` | `16000` | Max context + generation length |
+| `--max-tokens` | `512` | Max tokens the model generates per sample |
 | `--tensor-parallel` | `1` | Number of GPUs for tensor parallelism |
 
-The output file is the input JSON with three extra fields added to every sample: `raw_output`, `completion` (thinking trace stripped), and `reasoning` (content of `<think>…</think>` if present).
+> **Thinking models** need a larger `--max-tokens` budget to accommodate the reasoning
+> trace before the final JSON answer. Use `--max-tokens 4000` for thinking models vs
+> `--max-tokens 256` for instruct models. If jobs OOM, reduce `--batch-size` to `4` or `2`.
 
 ---
 
@@ -225,7 +235,13 @@ python eval.py \
     --output scores/collisions_olmo3think_eval.json
 ```
 
-Prints a summary to stdout and writes a JSON file with overall accuracy and a per `(m, n)` breakdown.
+Prints a summary to stdout and writes a JSON file with:
+- overall accuracy and **overall parsed weighted accuracy (PWA)**
+- a per `(m, n)` breakdown with both `accuracy` and `parsed_weighted_accuracy`
+
+> **Parsed weighted accuracy** = `accuracy × (n_scored / n_total)` per `(m, n)` combo.
+> It penalises difficulty levels where the model frequently failed to produce valid JSON,
+> giving a more conservative estimate of true performance.
 
 Add `--no-samples` to omit per-sample detail and keep the output file small.
 
@@ -239,7 +255,30 @@ python paper_plots.py \
     --output-dir figures/
 ```
 
-Produces three figures (line plot, bar chart, heatmap) in both `.pdf` and `.png`.
+Produces two figures in both `.pdf` and `.png`:
+- `accuracy_vs_n_line` — accuracy per model across difficulty levels
+- `pwa_vs_n_line` — parsed weighted accuracy per model across difficulty levels
+
+**All plot options:**
+
+| Flag | Default | Description |
+|---|---|---|
+| `--inputs` | required | Paths or globs to eval JSON files |
+| `--output-dir` | `figures/` | Directory to write figures |
+| `--title` | `""` | Optional figure title suffix |
+| `--max-m` | `None` | Cap plots at this `m` value — useful when models have different context limits and you want a fair comparison (e.g. `--max-m 2048` excludes larger difficulties) |
+
+> **Example use case for `--max-m`:** If instruct models were run on data up to `m=2500`
+> but thinking models can only fit up to `m=2048` within their context window, use
+> `--max-m 2048` so all models are compared on the same difficulty levels.
+
+```bash
+# Compare all models fairly up to m=2048
+python paper_plots.py \
+    --inputs scores/*_eval.json \
+    --output-dir figures/ \
+    --max-m 2048
+```
 
 ---
 
@@ -254,17 +293,31 @@ python check_token_lengths.py --task olmo_original
 
 # 3. Copy to cluster and run inference
 scp data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json marvin:/path/to/data/
+
+# Instruct model
 sbatch inference.sh \
     --input  /path/to/data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json \
-    --model  allenai/Olmo-Hybrid-Think-SFT-7B \
-    --output /path/to/results/sbr_hybrid_think.json
+    --model  allenai/OLMo-3-7B-Instruct \
+    --output /path/to/results/olmo_original_olmo3_instruct.json \
+    --max-model-len 28000 --max-tokens 256
+
+# Thinking model
+sbatch inference.sh \
+    --input  /path/to/data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json \
+    --model  allenai/OLMo-3-7B-Think \
+    --output /path/to/results/olmo_original_olmo3_think.json \
+    --max-model-len 32000 --max-tokens 4000
 
 # 4. Copy results back and evaluate
-scp marvin:/path/to/results/sbr_hybrid_think.json results/
-python eval.py --input results/sbr_hybrid_think.json
+scp marvin:/path/to/results/*.json results/
+python eval.py --input results/olmo_original_olmo3_instruct.json
+python eval.py --input results/olmo_original_olmo3_think.json
 
-# 5. Plot
-python paper_plots.py --inputs scores/*_eval.json --output-dir figures/
+# 5. Plot — cap at m=2048 for fair comparison across all models
+python paper_plots.py \
+    --inputs scores/*_eval.json \
+    --output-dir figures/ \
+    --max-m 2048
 ```
 
 ### Dyck end-to-end example
