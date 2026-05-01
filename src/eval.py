@@ -14,8 +14,10 @@ The output is a JSON file with:
   n_scored          : int   (samples with a parseable answer AND a ground truth)
   n_correct         : int
   n_parse_failed    : int   (raw_output could not be parsed to A/B/C/D)
-  overall_accuracy  : float | null
-  per_difficulty    : {difficulty_str: {n_scored, n_correct, accuracy, n_parse_failed}}
+   overall_accuracy                 : float | null
+  overall_parsed_weighted_accuracy : float | null
+  per_m_n : {mn_str: {n_scored, n_correct, accuracy, parsed_weighted_accuracy, n_parse_failed}}
+  
 """
 
 import argparse
@@ -116,13 +118,26 @@ def compute_accuracy(samples: list[dict]) -> dict:
                 n_correct += 1
                 per_m_n[mn_key]["n_correct"] += 1
 
-    for key, d in per_m_n.items():   # ← iterate per_m_n, not per_difficulty
+    for key, d in per_m_n.items():
         d["accuracy"] = (
             round(d["n_correct"] / d["n_scored"], 4)
             if d["n_scored"] > 0 else None
         )
+        if d["accuracy"] is not None and d["n_total"] > 0:
+            d["parsed_weighted_accuracy"] = round(
+                d["accuracy"] * (d["n_scored"] / d["n_total"]), 4
+            )
+        else:
+            d["parsed_weighted_accuracy"] = None
 
     overall_acc = round(n_correct / n_scored, 4) if n_scored > 0 else None
+
+    pwa_values = [
+        d["parsed_weighted_accuracy"]
+        for d in per_m_n.values()
+        if d["parsed_weighted_accuracy"] is not None
+    ]
+    overall_pwa = round(sum(pwa_values) / len(pwa_values), 4) if pwa_values else None
 
     return {
         "model_name": model_name,
@@ -132,10 +147,10 @@ def compute_accuracy(samples: list[dict]) -> dict:
         "n_correct": n_correct,
         "n_parse_failed": n_parse_failed,
         "overall_accuracy": overall_acc,
-        "per_m_n": per_m_n,           # ← correct key
+        "overall_parsed_weighted_accuracy": overall_pwa,
+        "per_m_n": per_m_n,
         "scored_samples": scored_samples,
     }
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------
@@ -178,16 +193,18 @@ def main():
     print(f"Scored           : {results['n_scored']}")
     print(f"Parse failures   : {results['n_parse_failed']}")
     print(f"Overall accuracy : {results['overall_accuracy']}")
+    print(f"Overall PWA      : {results['overall_parsed_weighted_accuracy']}")
+    
     print()
     print("Per (m, n):")
     for key, d in sorted(results["per_m_n"].items()):
         print(
             f"  {key:>6}  scored={d['n_scored']:>4}  "
             f"correct={d['n_correct']:>4}  "
-            f"acc={d['accuracy'] if d['accuracy'] is not None else 'N/A'}"
+            f"acc={d['accuracy'] if d['accuracy'] is not None else 'N/A':<8}  "
+            f"pwa={d['parsed_weighted_accuracy'] if d['parsed_weighted_accuracy'] is not None else 'N/A'}"
         )
-
-    print(f"\nEval results written to {args.output}")
+        print(f"\nEval results written to {args.output}")
 
 
 if __name__ == "__main__":

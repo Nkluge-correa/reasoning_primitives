@@ -66,6 +66,7 @@ def collect_series(eval_files):
         short = model.split("/")[-1] if "/" in model else model
 
         acc_by_mn = {}
+        pwa_by_mn = {}
         for key, d in data.get("per_m_n", {}).items():
             try:
                 m_str, n_str = key.split("x")
@@ -74,9 +75,14 @@ def collect_series(eval_files):
                 continue
             if d.get("accuracy") is not None:
                 acc_by_mn[(m, n)] = d["accuracy"]
+            if d.get("parsed_weighted_accuracy") is not None:
+                pwa_by_mn[(m, n)] = d["parsed_weighted_accuracy"]
 
         if acc_by_mn:
-            series[short] = acc_by_mn
+            series[short] = {
+                "accuracy": acc_by_mn,
+                "pwa": pwa_by_mn,
+            }
 
     return series
 
@@ -86,22 +92,18 @@ def collect_series(eval_files):
 # ---------------------------------------------------------------------------
 
 def plot_line(series, output_dir, title=""):
-    # Collect all unique (m, n) pairs across all models, sorted by (m, n)
-    all_pairs = sorted({pair for acc in series.values() for pair in acc})
-
-    # x-axis labels like "(4,4)", "(8,8)", "(4,8)" etc.
-    x_labels = [f"({m},{n})" for m, n in all_pairs]
+    all_pairs = sorted({pair for s in series.values() for pair in s["accuracy"]})
+    x_labels  = [f"({m},{n})" for m, n in all_pairs]
 
     fig, ax = plt.subplots(figsize=(max(9, len(all_pairs) * 0.8), 5))
 
-    for i, (model, acc_by_mn) in enumerate(sorted(series.items())):
-        ys = [acc_by_mn.get(pair, float("nan")) for pair in all_pairs]
+    for i, (model, s) in enumerate(sorted(series.items())):
+        ys = [s["accuracy"].get(pair, float("nan")) for pair in all_pairs]
         ax.plot(range(len(all_pairs)), ys,
                 label=model,
                 color=COLORS[i % len(COLORS)],
                 marker=MARKERS[i % len(MARKERS)],
-                linestyle="-",
-                linewidth=2, markersize=8)
+                linestyle="-", linewidth=2, markersize=8)
         for x, y in zip(range(len(all_pairs)), ys):
             if not np.isnan(y):
                 ax.annotate(f"{y:.2f}", xy=(x, y), xytext=(0, 9),
@@ -121,6 +123,42 @@ def plot_line(series, output_dir, title=""):
     plt.tight_layout()
     for ext in ("pdf", "png"):
         p = os.path.join(output_dir, f"accuracy_vs_n_line.{ext}")
+        plt.savefig(p, dpi=300); print(f"  Saved → {p}")
+    plt.close()
+
+def plot_pwa_line(series, output_dir, title=""):
+    all_pairs = sorted({pair for s in series.values() for pair in s["pwa"]})
+    x_labels  = [f"({m},{n})" for m, n in all_pairs]
+
+    fig, ax = plt.subplots(figsize=(max(9, len(all_pairs) * 0.8), 5))
+
+    for i, (model, s) in enumerate(sorted(series.items())):
+        ys = [s["pwa"].get(pair, float("nan")) for pair in all_pairs]
+        ax.plot(range(len(all_pairs)), ys,
+                label=model,
+                color=COLORS[i % len(COLORS)],
+                marker=MARKERS[i % len(MARKERS)],
+                linestyle="-", linewidth=2, markersize=8)
+        for x, y in zip(range(len(all_pairs)), ys):
+            if not np.isnan(y):
+                ax.annotate(f"{y:.2f}", xy=(x, y), xytext=(0, 9),
+                            textcoords="offset points",
+                            ha="center", fontsize=7,
+                            color=COLORS[i % len(COLORS)])
+
+    ax.set_xticks(range(len(all_pairs)))
+    ax.set_xticklabels(x_labels, fontsize=9, rotation=45, ha="right")
+    ax.set_xlabel("(m, n)", fontsize=12)
+    ax.set_ylabel("Parsed Weighted Accuracy", fontsize=12)
+    ax.set_ylim(0, 1.10)
+    ax.axhline(DEFAULT_BASELINE, color="gray", linestyle="--", linewidth=1.5,
+               label=f"Random baseline ({DEFAULT_BASELINE:.2f})")
+    ax.set_title(title or "Parsed Weighted Accuracy vs Difficulty",
+                 fontsize=13, fontweight="bold")
+    ax.legend(fontsize=9, loc="upper right")
+    plt.tight_layout()
+    for ext in ("pdf", "png"):
+        p = os.path.join(output_dir, f"pwa_vs_n_line.{ext}")
         plt.savefig(p, dpi=300); print(f"  Saved → {p}")
     plt.close()
 
@@ -269,6 +307,7 @@ def main():
     print(f"Output : {args.output_dir}\n")
 
     plot_line(series, args.output_dir, title=args.title)
+    plot_pwa_line(series, args.output_dir, title=args.title)
     # plot_bar(series,  args.output_dir, title=args.title)
     # if not args.no_heatmap:
     #     plot_heatmap(series, args.output_dir, title=args.title)
