@@ -21,15 +21,16 @@ All tasks output **4-option multiple choice (A/B/C/D)**.
 
 ```
 ├── src/
-│   ├── utils.py          # Shared helpers (JSON I/O, answer parsing, vLLM loading)
-│   ├── templates.py      # Task definitions — all prompts and generators live here
-│   ├── generator.py      # Generate evaluation datasets (no GPU needed)
-│   ├── inference.py      # Run a model over a dataset (requires GPU + vLLM)
-│   ├── inference.sh      # SLURM job script for HPC clusters
-│   ├── eval.py           # Compute accuracy from inference output
-│   └── paper_plots.py    # Generate publication figures
-├── data/                 # Generated datasets (auto-created)
-└── results/              # Inference and eval outputs
+│   ├── utils.py                 # Shared helpers (JSON I/O, answer parsing, vLLM loading)
+│   ├── templates.py             # Task definitions — all prompts and generators live here
+│   ├── generator.py             # Generate evaluation datasets (no GPU needed)
+│   ├── inference.py             # Run a model over a dataset (requires GPU + vLLM)
+│   ├── inference.sh             # SLURM job script for HPC clusters
+│   ├── eval.py                  # Compute accuracy from inference output
+│   ├── paper_plots.py           # Generate publication figures
+│   └── check_token_lengths.py   # Check prompt token lengths across difficulty levels
+├── data/                        # Generated datasets (auto-created)
+└── results/                     # Inference and eval outputs
 ```
 
 ---
@@ -150,6 +151,31 @@ Output is a single JSON file, e.g. `data/collisions_m4_8_16_n4_8_16_s100.json`.
 
 ---
 
+## Step 1b — Check prompt token lengths
+
+Before running inference, use `check_token_lengths.py` to verify that prompt lengths
+at each difficulty level fit within your model's context window:
+
+```bash
+# Check all files in the default data directory
+python check_token_lengths.py
+
+# Check only olmo_original files
+python check_token_lengths.py --task olmo_original
+
+# Use a different model for tokenization
+python check_token_lengths.py --model allenai/OLMo-Hybrid-Instruct-SFT-7B
+
+# Use a different data directory
+python check_token_lengths.py --data-dir /path/to/data
+```
+
+This prints `m`, `n`, and token count for every difficulty level in every matching file.
+Use the largest token count + 256 (for generation) as your `--max-model-len` when
+submitting inference jobs.
+
+---
+
 ## Step 2 — Run inference (HPC / GPU)
 
 ### On a local GPU
@@ -223,20 +249,51 @@ Produces three figures (line plot, bar chart, heatmap) in both `.pdf` and `.png`
 # 1. Generate
 python generator.py --task olmo_original --n-samples 100 --m 4 8 16 32 64
 
-# 2. Copy to cluster and run inference
+# 2. Check token lengths
+python check_token_lengths.py --task olmo_original
+
+# 3. Copy to cluster and run inference
 scp data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json marvin:/path/to/data/
 sbatch inference.sh \
     --input  /path/to/data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json \
     --model  allenai/Olmo-Hybrid-Think-SFT-7B \
     --output /path/to/results/sbr_hybrid_think.json
 
-# 3. Copy results back and evaluate
+# 4. Copy results back and evaluate
 scp marvin:/path/to/results/sbr_hybrid_think.json results/
 python eval.py --input results/sbr_hybrid_think.json
 
-# 4. Plot
+# 5. Plot
 python paper_plots.py --inputs scores/*_eval.json --output-dir figures/
 ```
+
+### Dyck end-to-end example
+
+```bash
+# 1. Generate — cartesian over stack depth × sequence length
+python generator.py \
+    --task dyck \
+    --n-samples 100 \
+    --m 1 2 4 8 16 \
+    --n 8 16 32 64 128 \
+    --mode cartesian
+
+# 2. Check token lengths
+python check_token_lengths.py --task dyck
+
+# 3. Run inference
+sbatch inference.sh \
+    --input  /path/to/data/dyck_m1_2_4_8_16_n8_16_32_64_128_s100.json \
+    --model  allenai/OLMo-3-7B-Instruct \
+    --output /path/to/results/dyck_olmo3_instruct.json
+
+# 4. Evaluate
+python eval.py --input results/dyck_olmo3_instruct.json
+
+# 5. Plot
+python paper_plots.py --inputs scores/*_eval.json --output-dir figures/
+```
+
 ---
 
 ## Adding a new task
