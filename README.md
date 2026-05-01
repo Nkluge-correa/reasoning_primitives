@@ -11,6 +11,7 @@ A pipeline for generating, running, and evaluating LLM benchmarks focused on **s
 | `collisions` | Track particle velocities through elastic collisions | number of particles | number of collision steps |
 | `astro` | Track variable→planet mappings through swap operations over an exoplanet table | number of table rows | number of swaps |
 | `olmo_original` | State-based recall from the OLMo Hybrid paper: track 5 pointer variables through swaps, then index into a bit array | bit-array size | number of swap lines |
+| `dyck` | Track a bracket stack through a Dyck expression and identify the correct closing token at a masked position | stack depth at query position | sequence length |
 
 All tasks output **4-option multiple choice (A/B/C/D)**.
 
@@ -114,13 +115,28 @@ python generator.py \
     --n-samples 100 \
     --m 4 8 16 \
     --csv-path /path/to/exoplanets.csv
+
+# dyck — cartesian mode recommended to separate stack depth vs sequence length
+python generator.py \
+    --task dyck \
+    --n-samples 100 \
+    --m 1 2 4 8 16 \
+    --n 8 16 32 64 128 \
+    --mode cartesian
 ```
+
+> **Note for `dyck`:** `m` is stack depth at the query position and `n` is sequence
+> length. Always keep `n >= 4*m` so the sequence is long enough to reach the target
+> depth — e.g. pair `m=8` with `n=32` or longer. If `n` is too small the generator
+> will silently use `target_depth * 4` as the actual sequence length instead.
+> Cartesian mode is recommended over zip so stack depth and sequence length can be
+> varied independently.
 
 **All options:**
 
 | Flag | Default | Description |
 |---|---|---|
-| `--task` | required | `collisions`, `astro`, or `olmo_original` |
+| `--task` | required | `collisions`, `astro`, `olmo_original`, or `dyck` |
 | `--n-samples` | `100` | Samples per `(m, n)` pair |
 | `--m` | `4 8 16` | Space-separated list of `m` values |
 | `--n` | same as `--m` | Space-separated list of `n` values (defaults to `--m` if omitted) |
@@ -217,6 +233,30 @@ sbatch inference.sh \
 # 3. Copy results back and evaluate
 scp marvin:/path/to/results/sbr_hybrid_think.json results/
 python eval.py --input results/sbr_hybrid_think.json
+
+# 4. Plot
+python paper_plots.py --inputs scores/*_eval.json --output-dir figures/
+```
+
+### Dyck end-to-end example
+
+```bash
+# 1. Generate — cartesian over stack depth × sequence length
+python generator.py \
+    --task dyck \
+    --n-samples 100 \
+    --m 1 2 4 8 16 \
+    --n 8 16 32 64 128 \
+    --mode cartesian
+
+# 2. Run inference
+sbatch inference.sh \
+    --input  /path/to/data/dyck_m1_2_4_8_16_n8_16_32_64_128_s100.json \
+    --model  allenai/OLMo-3-7B-Instruct \
+    --output /path/to/results/dyck_olmo3_instruct.json
+
+# 3. Evaluate
+python eval.py --input results/dyck_olmo3_instruct.json
 
 # 4. Plot
 python paper_plots.py --inputs scores/*_eval.json --output-dir figures/

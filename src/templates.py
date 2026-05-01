@@ -557,7 +557,161 @@ def _sbr_generator(m: int, n: int, rng: random.Random) -> dict:
         },
     }
 
+# ============================================================================
+# Task: dyck
+#
+# Standard Dyck language with fixed vocab: ( ) [ ] { }
+# Strict LIFO nesting.
+#
+# m = stack depth at the query position (working memory pressure)
+# n = sequence length (how far back the model must read)
+#
+# The prompt gives a complete sequence with one closer masked as _.
+# The model must identify the correct closing token from 4 options.
+# ============================================================================
 
+_DYCK_SYSTEM_PROMPT = """You are a strict language validator for Dyck expressions.
+
+Rules:
+- A Dyck expression uses bracket pairs: ( ), [ ], { }
+- Every opening bracket must be closed by its exact matching closer.
+- Brackets must be closed in the correct order (last opened = first closed).
+
+Task:
+- You are given a Dyck expression with one token masked as _.
+- You must determine what token _ must be to keep the expression valid.
+
+Output requirements:
+- Return EXACTLY one JSON object, no other text.
+
+Format:
+{
+  "answer": "A | B | C | D"
+}
+"""
+
+_DYCK_OPENERS = ["(", "[", "{"]
+_DYCK_CLOSERS = [")", "]", "}"]
+_DYCK_MATCH   = {"(": ")", "[": "]", "{": "}"}
+
+
+def _dyck_generator(m: int, n: int, rng: random.Random) -> dict:
+    """
+    Standard Dyck language task.
+
+    m = stack depth at the query position (working memory pressure).
+    n = sequence length (how far back the model must read).
+    """
+    target_depth = max(1, m)
+    seq_len      = max(target_depth * 4, n + (n % 2))  # ensure even and long enough
+
+    openers = _DYCK_OPENERS[:3]
+    matcher = _DYCK_MATCH
+
+    for attempt in range(10000):
+        sequence = []
+        stack    = []
+
+        while len(sequence) < seq_len:
+            remaining  = seq_len - len(sequence)
+            must_close = len(stack) >= remaining
+            must_open  = len(stack) == 0
+
+            if must_close:
+                sequence.append(matcher[stack[-1]])
+                stack.pop()
+            elif must_open:
+                b = rng.choice(openers)
+                sequence.append(b)
+                stack.append(b)
+            else:
+                if rng.random() < 0.5:
+                    b = rng.choice(openers)
+                    sequence.append(b)
+                    stack.append(b)
+                else:
+                    sequence.append(matcher[stack[-1]])
+                    stack.pop()
+
+        # Find closer positions where stack depth == target_depth just before close
+        candidate_positions = []
+        sim_stack = []
+        for i, token in enumerate(sequence):
+            if token in openers:
+                sim_stack.append(token)
+            else:
+                if len(sim_stack) == target_depth:
+                    candidate_positions.append(i)
+                if sim_stack:
+                    sim_stack.pop()
+
+        if candidate_positions:
+            query_pos     = rng.choice(candidate_positions)
+            correct_token = sequence[query_pos]
+            break
+    else:
+        raise RuntimeError(
+            f"Could not generate dyck sample with "
+            f"target_depth={target_depth}, seq_len={seq_len} after 10000 attempts."
+        )
+
+    # --- Build MC options ---
+    all_tokens   = _DYCK_OPENERS + _DYCK_CLOSERS
+    wrong_tokens = [t for t in all_tokens if t != correct_token]
+    wrong_chosen = rng.sample(wrong_tokens, 3)
+
+    option_values = [correct_token] + wrong_chosen
+    rng.shuffle(option_values)
+    labels  = ["A", "B", "C", "D"]
+    options = dict(zip(labels, option_values))
+    correct_label = next(lbl for lbl, val in options.items() if val == correct_token)
+
+    # --- Build prompt ---
+    display            = list(sequence)
+    display[query_pos] = "_"
+    expr_str           = " ".join(display)
+
+    # Reconstruct stack at query position
+    sim_stack = []
+    for i in range(query_pos):
+        t = sequence[i]
+        if t in openers:
+            sim_stack.append(t)
+        else:
+            if sim_stack:
+                sim_stack.pop()
+
+    lines = [
+        f"Expression ({seq_len} tokens): {expr_str}",
+        "",
+        "Bracket pairs: ( )  [ ]  { }",
+        "Every opener must be closed by its matching closer in the correct order.",
+        "",
+        f"What token must replace _ at position {query_pos + 1}?",
+        "",
+        "### Options",
+    ]
+    for lbl in labels:
+        lines.append(f"{lbl}) {options[lbl]}")
+
+    return {
+        "prompt": "\n".join(lines),
+        "correct_option": correct_label,
+        "option_A": str(options["A"]),
+        "option_B": str(options["B"]),
+        "option_C": str(options["C"]),
+        "option_D": str(options["D"]),
+        "metadata": {
+            "m": target_depth,
+            "n": seq_len,
+            "stack_depth_at_query": target_depth,
+            "sequence_length": seq_len,
+            "query_position": query_pos,
+            "correct_token": correct_token,
+            "stack_at_query": list(sim_stack),
+            "sequence": "".join(sequence),
+        },
+    }
 # ============================================================================
 # Registry
 # ============================================================================
@@ -577,6 +731,11 @@ _REGISTRY: dict[str, TaskTemplate] = {
         name="olmo_original",
         system_prompt=_SBR_SYSTEM_PROMPT,
         _generator=_sbr_generator,
+    ),
+    "dyck": TaskTemplate(
+    name="dyck",
+    system_prompt=_DYCK_SYSTEM_PROMPT,
+    _generator=_dyck_generator,
     ),
 }
 
