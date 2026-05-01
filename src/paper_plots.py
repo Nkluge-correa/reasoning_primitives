@@ -58,29 +58,29 @@ def load_eval_file(path: str) -> dict:
         return json.load(f)
 
 
-def collect_series(eval_files: list[str]) -> dict[str, dict[int, float]]:
+def collect_series(eval_files):
     """
-    Returns {model_name: {difficulty: accuracy}}.
-    Model name is taken from the JSON; if missing, the filename stem is used.
+    Returns {model_name: {n: {m: accuracy}}}
+    so we can plot one curve per (model, m) with n on the x-axis.
     """
     series = {}
     for path in sorted(eval_files):
         data = load_eval_file(path)
         model = data.get("model_name", os.path.splitext(os.path.basename(path))[0])
-        # Shorten for display
         short = model.split("/")[-1] if "/" in model else model
 
-        acc_by_diff = {}
-        for diff_key, d in data.get("per_difficulty", {}).items():
+        acc_by_m_n = {}
+        for key, d in data.get("per_m_n", {}).items():
             try:
-                diff = int(diff_key)
+                m_str, n_str = key.split("x")
+                m, n = int(m_str), int(n_str)
             except ValueError:
                 continue
             if d.get("accuracy") is not None:
-                acc_by_diff[diff] = d["accuracy"]
+                acc_by_m_n[(m, n)] = d["accuracy"]
 
-        if acc_by_diff:
-            series[short] = acc_by_diff
+        if acc_by_m_n:
+            series[short] = acc_by_m_n
 
     return series
 
@@ -89,46 +89,37 @@ def collect_series(eval_files: list[str]) -> dict[str, dict[int, float]]:
 # Plot 1 — Line plot
 # ---------------------------------------------------------------------------
 
-def plot_line(series: dict[str, dict[int, float]], output_dir: str, title: str = ""):
-    all_diffs = sorted({d for diffs in series.values() for d in diffs})
-    x_pos     = list(range(len(all_diffs)))
-    x_labels  = [str(d) for d in all_diffs]
+def plot_line(series, output_dir, title=""):
+    # Collect all unique n values for x-axis, all unique m values for curves
+    all_n = sorted({n for acc in series.values() for (m, n) in acc})
+    all_m = sorted({m for acc in series.values() for (m, n) in acc})
 
     fig, ax = plt.subplots(figsize=(9, 5))
-
-    for i, (model, acc_by_diff) in enumerate(sorted(series.items())):
-        ys = [acc_by_diff.get(d, float("nan")) for d in all_diffs]
-        ax.plot(
-            x_pos, ys,
-            label=model,
-            color=COLORS[i % len(COLORS)],
-            marker=MARKERS[i % len(MARKERS)],
-            linewidth=2, markersize=8,
-        )
-        for x, y in zip(x_pos, ys):
-            if not np.isnan(y):
-                ax.annotate(
-                    f"{y:.2f}", xy=(x, y), xytext=(0, 9),
-                    textcoords="offset points",
-                    ha="center", fontsize=8,
+    i = 0
+    for model, acc_by_mn in sorted(series.items()):
+        for m in all_m:
+            ys = [acc_by_mn.get((m, n), float("nan")) for n in all_n]
+            label = f"{model} (m={m})"
+            ax.plot(range(len(all_n)), ys,
+                    label=label,
                     color=COLORS[i % len(COLORS)],
-                )
+                    marker=MARKERS[i % len(MARKERS)],
+                    linewidth=2, markersize=8)
+            i += 1
 
-    ax.axhline(DEFAULT_BASELINE, color="gray", linestyle="--", linewidth=1.5,
-               label=f"Random baseline ({DEFAULT_BASELINE:.2f})")
-    ax.set_xticks(x_pos)
-    ax.set_xticklabels(x_labels, fontsize=11)
-    ax.set_xlabel("Difficulty", fontsize=12)
+    ax.set_xticks(range(len(all_n)))
+    ax.set_xticklabels([str(n) for n in all_n], fontsize=11)
+    ax.set_xlabel("n (number of swaps)", fontsize=12)
     ax.set_ylabel("Accuracy", fontsize=12)
     ax.set_ylim(0, 1.10)
-    ax.set_title(title or "Accuracy vs Difficulty", fontsize=13, fontweight="bold")
-    ax.legend(fontsize=9, loc="lower left")
+    ax.axhline(DEFAULT_BASELINE, color="gray", linestyle="--", linewidth=1.5,
+               label=f"Random baseline ({DEFAULT_BASELINE:.2f})")
+    ax.set_title(title or "Accuracy vs n", fontsize=13, fontweight="bold")
+    ax.legend(fontsize=9, loc="upper right")
     plt.tight_layout()
-
     for ext in ("pdf", "png"):
-        p = os.path.join(output_dir, f"accuracy_vs_difficulty_line.{ext}")
-        plt.savefig(p, dpi=300)
-        print(f"  Saved → {p}")
+        p = os.path.join(output_dir, f"accuracy_vs_n_line.{ext}")
+        plt.savefig(p, dpi=300); print(f"  Saved → {p}")
     plt.close()
 
 
@@ -136,51 +127,48 @@ def plot_line(series: dict[str, dict[int, float]], output_dir: str, title: str =
 # Plot 2 — Bar chart
 # ---------------------------------------------------------------------------
 
-def plot_bar(series: dict[str, dict[int, float]], output_dir: str, title: str = ""):
-    all_diffs = sorted({d for diffs in series.values() for d in diffs})
+def plot_bar(series, output_dir, title=""):
+    all_n = sorted({n for acc in series.values() for (m, n) in acc})
+    all_m = sorted({m for acc in series.values() for (m, n) in acc})
     model_list = sorted(series.keys())
-    n_models = len(model_list)
-    n_diffs  = len(all_diffs)
 
-    x     = np.arange(n_diffs)
-    width = max(0.08, 0.7 / n_models)
+    # One group per n value; within each group, bars for each (model, m) combo
+    curve_keys = [(model, m) for model in model_list for m in all_m]
+    n_curves = len(curve_keys)
+    n_groups = len(all_n)
 
-    fig, ax = plt.subplots(figsize=(max(8, n_diffs * 1.5), 5))
+    x = np.arange(n_groups)
+    width = max(0.08, 0.7 / n_curves)
 
-    for i, model in enumerate(model_list):
-        acc_by_diff = series[model]
-        ys  = [acc_by_diff.get(d, 0.0) for d in all_diffs]
-        off = (i - n_models / 2 + 0.5) * width
+    fig, ax = plt.subplots(figsize=(max(8, n_groups * 1.5), 5))
 
-        bars = ax.bar(
-            x + off, ys, width,
-            label=model,
-            color=COLORS[i % len(COLORS)],
-            alpha=0.85,
-        )
+    for i, (model, m) in enumerate(curve_keys):
+        ys = [series[model].get((m, n), 0.0) for n in all_n]
+        off = (i - n_curves / 2 + 0.5) * width
+        bars = ax.bar(x + off, ys, width,
+                      label=f"{model} (m={m})",
+                      color=COLORS[i % len(COLORS)],
+                      alpha=0.85)
         for bar, y in zip(bars, ys):
             if y > 0:
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2, y + 0.01,
-                    f"{y:.2f}", ha="center", va="bottom", fontsize=8,
-                    color=COLORS[i % len(COLORS)],
-                )
+                ax.text(bar.get_x() + bar.get_width() / 2, y + 0.01,
+                        f"{y:.2f}", ha="center", va="bottom", fontsize=8,
+                        color=COLORS[i % len(COLORS)])
 
     ax.axhline(DEFAULT_BASELINE, color="gray", linestyle="--", linewidth=1.5,
                label=f"Random ({DEFAULT_BASELINE:.2f})")
     ax.set_xticks(x)
-    ax.set_xticklabels([str(d) for d in all_diffs], fontsize=11)
-    ax.set_xlabel("Difficulty", fontsize=12)
+    ax.set_xticklabels([str(n) for n in all_n], fontsize=11)
+    ax.set_xlabel("n (number of swaps)", fontsize=12)
     ax.set_ylabel("Accuracy", fontsize=12)
     ax.set_ylim(0, 1.12)
-    ax.set_title(title or "Accuracy vs Difficulty", fontsize=13, fontweight="bold")
+    ax.set_title(title or "Accuracy vs n", fontsize=13, fontweight="bold")
     ax.legend(fontsize=9)
     plt.tight_layout()
 
     for ext in ("pdf", "png"):
-        p = os.path.join(output_dir, f"accuracy_vs_difficulty_bar.{ext}")
-        plt.savefig(p, dpi=300)
-        print(f"  Saved → {p}")
+        p = os.path.join(output_dir, f"accuracy_vs_n_bar.{ext}")
+        plt.savefig(p, dpi=300); print(f"  Saved → {p}")
     plt.close()
 
 
@@ -188,29 +176,35 @@ def plot_bar(series: dict[str, dict[int, float]], output_dir: str, title: str = 
 # Plot 3 — Heatmap (models × difficulties)
 # ---------------------------------------------------------------------------
 
-def plot_heatmap(series: dict[str, dict[int, float]], output_dir: str, title: str = ""):
-    all_diffs  = sorted({d for diffs in series.values() for d in diffs})
+def plot_heatmap(series, output_dir, title=""):
+    # Rows = (model, m) combos; columns = n values
+    all_n = sorted({n for acc in series.values() for (m, n) in acc})
+    all_m = sorted({m for acc in series.values() for (m, n) in acc})
     model_list = sorted(series.keys())
 
-    grid = np.full((len(model_list), len(all_diffs)), np.nan)
-    for i, model in enumerate(model_list):
-        for j, diff in enumerate(all_diffs):
-            val = series[model].get(diff)
+    row_keys = [(model, m) for model in model_list for m in all_m]
+    grid = np.full((len(row_keys), len(all_n)), np.nan)
+
+    for i, (model, m) in enumerate(row_keys):
+        for j, n in enumerate(all_n):
+            val = series[model].get((m, n))
             if val is not None:
                 grid[i, j] = val
 
-    fig, ax = plt.subplots(figsize=(max(6, len(all_diffs) * 1.2), max(4, len(model_list) * 0.8)))
+    row_labels = [f"{model} m={m}" for model, m in row_keys]
+
+    fig, ax = plt.subplots(figsize=(max(6, len(all_n) * 1.2), max(4, len(row_keys) * 0.8)))
     im = ax.imshow(grid, vmin=0, vmax=1, cmap="RdYlGn", aspect="auto")
 
-    ax.set_xticks(range(len(all_diffs)))
-    ax.set_xticklabels([str(d) for d in all_diffs], fontsize=10)
-    ax.set_yticks(range(len(model_list)))
-    ax.set_yticklabels(model_list, fontsize=10)
-    ax.set_xlabel("Difficulty", fontsize=12)
-    ax.set_title(title or "Accuracy Heatmap (Models × Difficulty)", fontsize=13, fontweight="bold")
+    ax.set_xticks(range(len(all_n)))
+    ax.set_xticklabels([str(n) for n in all_n], fontsize=10)
+    ax.set_yticks(range(len(row_keys)))
+    ax.set_yticklabels(row_labels, fontsize=10)
+    ax.set_xlabel("n (number of swaps)", fontsize=12)
+    ax.set_title(title or "Accuracy Heatmap (Models × n)", fontsize=13, fontweight="bold")
 
-    for i in range(len(model_list)):
-        for j in range(len(all_diffs)):
+    for i in range(len(row_keys)):
+        for j in range(len(all_n)):
             val = grid[i, j]
             if not np.isnan(val):
                 ax.text(j, i, f"{val:.2f}", ha="center", va="center",
@@ -221,11 +215,8 @@ def plot_heatmap(series: dict[str, dict[int, float]], output_dir: str, title: st
 
     for ext in ("pdf", "png"):
         p = os.path.join(output_dir, f"accuracy_heatmap.{ext}")
-        plt.savefig(p, dpi=300)
-        print(f"  Saved → {p}")
+        plt.savefig(p, dpi=300); print(f"  Saved → {p}")
     plt.close()
-
-
 # ---------------------------------------------------------------------------
 # CLI
 # ---------------------------------------------------------------------------

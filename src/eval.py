@@ -76,49 +76,47 @@ def score_sample(sample: dict) -> dict:
 
 def compute_accuracy(samples: list[dict]) -> dict:
     """
-    Score all samples and aggregate into per-difficulty and overall statistics.
+    Score all samples and aggregate into per-(m,n) and overall statistics.
     """
     model_name = samples[0].get("model_name", "unknown") if samples else "unknown"
     task       = samples[0].get("task", "unknown") if samples else "unknown"
 
-    n_total       = len(samples)
-    n_scored      = 0
-    n_correct     = 0
+    n_total        = len(samples)
+    n_scored       = 0
+    n_correct      = 0
     n_parse_failed = 0
 
-    per_difficulty: dict[str, dict] = {}
+    per_m_n: dict[str, dict] = {}   # ← correct initialisation
 
     scored_samples = []
 
     for sample in samples:
         result = score_sample(sample)
-        # Attach scores back to sample for the detailed output
         scored = dict(sample)
         scored.update(result)
         scored_samples.append(scored)
 
-        diff_key = str(sample.get("difficulty", "unknown"))
-        if diff_key not in per_difficulty:
-            per_difficulty[diff_key] = {
+        mn_key = f"{sample.get('m', '?')}x{sample.get('n', '?')}"
+        if mn_key not in per_m_n:
+            per_m_n[mn_key] = {
                 "n_scored": 0, "n_correct": 0,
                 "n_parse_failed": 0, "n_total": 0,
             }
-        per_difficulty[diff_key]["n_total"] += 1
+        per_m_n[mn_key]["n_total"] += 1
 
         if result["parse_failed"]:
             n_parse_failed += 1
-            per_difficulty[diff_key]["n_parse_failed"] += 1
+            per_m_n[mn_key]["n_parse_failed"] += 1
             continue
 
         if result["is_correct"] is not None:
             n_scored += 1
-            per_difficulty[diff_key]["n_scored"] += 1
+            per_m_n[mn_key]["n_scored"] += 1
             if result["is_correct"]:
                 n_correct += 1
-                per_difficulty[diff_key]["n_correct"] += 1
+                per_m_n[mn_key]["n_correct"] += 1
 
-    # Compute per-difficulty accuracy
-    for key, d in per_difficulty.items():
+    for key, d in per_m_n.items():   # ← iterate per_m_n, not per_difficulty
         d["accuracy"] = (
             round(d["n_correct"] / d["n_scored"], 4)
             if d["n_scored"] > 0 else None
@@ -134,10 +132,9 @@ def compute_accuracy(samples: list[dict]) -> dict:
         "n_correct": n_correct,
         "n_parse_failed": n_parse_failed,
         "overall_accuracy": overall_acc,
-        "per_difficulty": per_difficulty,
+        "per_m_n": per_m_n,           # ← correct key
         "scored_samples": scored_samples,
     }
-
 
 # ---------------------------------------------------------------------------
 # CLI
@@ -182,10 +179,10 @@ def main():
     print(f"Parse failures   : {results['n_parse_failed']}")
     print(f"Overall accuracy : {results['overall_accuracy']}")
     print()
-    print("Per difficulty:")
-    for diff, d in sorted(results["per_difficulty"].items(), key=lambda x: int(x[0]) if x[0].isdigit() else 0):
+    print("Per (m, n):")
+    for key, d in sorted(results["per_m_n"].items()):
         print(
-            f"  diff={diff:>4}  scored={d['n_scored']:>4}  "
+            f"  {key:>6}  scored={d['n_scored']:>4}  "
             f"correct={d['n_correct']:>4}  "
             f"acc={d['accuracy'] if d['accuracy'] is not None else 'N/A'}"
         )
