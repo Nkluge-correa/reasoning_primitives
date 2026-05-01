@@ -59,17 +59,13 @@ def load_eval_file(path: str) -> dict:
 
 
 def collect_series(eval_files):
-    """
-    Returns {model_name: {n: {m: accuracy}}}
-    so we can plot one curve per (model, m) with n on the x-axis.
-    """
     series = {}
     for path in sorted(eval_files):
         data = load_eval_file(path)
         model = data.get("model_name", os.path.splitext(os.path.basename(path))[0])
         short = model.split("/")[-1] if "/" in model else model
 
-        acc_by_m_n = {}
+        acc_by_mn = {}
         for key, d in data.get("per_m_n", {}).items():
             try:
                 m_str, n_str = key.split("x")
@@ -77,10 +73,10 @@ def collect_series(eval_files):
             except ValueError:
                 continue
             if d.get("accuracy") is not None:
-                acc_by_m_n[(m, n)] = d["accuracy"]
+                acc_by_mn[(m, n)] = d["accuracy"]
 
-        if acc_by_m_n:
-            series[short] = acc_by_m_n
+        if acc_by_mn:
+            series[short] = acc_by_mn
 
     return series
 
@@ -90,41 +86,43 @@ def collect_series(eval_files):
 # ---------------------------------------------------------------------------
 
 def plot_line(series, output_dir, title=""):
-    all_n = sorted({n for acc in series.values() for (m, n) in acc})
-    all_m = sorted({m for acc in series.values() for (m, n) in acc})
+    # Collect all unique (m, n) pairs across all models, sorted by (m, n)
+    all_pairs = sorted({pair for acc in series.values() for pair in acc})
 
-    fig, ax = plt.subplots(figsize=(9, 5))
+    # x-axis labels like "(4,4)", "(8,8)", "(4,8)" etc.
+    x_labels = [f"({m},{n})" for m, n in all_pairs]
+
+    fig, ax = plt.subplots(figsize=(max(9, len(all_pairs) * 0.8), 5))
 
     for i, (model, acc_by_mn) in enumerate(sorted(series.items())):
-        color  = COLORS[i % len(COLORS)]
-        marker = MARKERS[i % len(MARKERS)]
-        for j, m in enumerate(all_m):
-            ys = [acc_by_mn.get((m, n), float("nan")) for n in all_n]
-            # Only label the first m-curve per model to avoid legend clutter
-            label = f"{model} (m={m})" if len(all_m) > 1 else model
-            linestyle = ["-", "--", ":", "-."][j % 4]
-            ax.plot(range(len(all_n)), ys,
-                    label=label,
-                    color=color,
-                    marker=marker,
-                    linestyle=linestyle,
-                    linewidth=2, markersize=8)
+        ys = [acc_by_mn.get(pair, float("nan")) for pair in all_pairs]
+        ax.plot(range(len(all_pairs)), ys,
+                label=model,
+                color=COLORS[i % len(COLORS)],
+                marker=MARKERS[i % len(MARKERS)],
+                linestyle="-",
+                linewidth=2, markersize=8)
+        for x, y in zip(range(len(all_pairs)), ys):
+            if not np.isnan(y):
+                ax.annotate(f"{y:.2f}", xy=(x, y), xytext=(0, 9),
+                            textcoords="offset points",
+                            ha="center", fontsize=7,
+                            color=COLORS[i % len(COLORS)])
 
-    ax.set_xticks(range(len(all_n)))
-    ax.set_xticklabels([str(n) for n in all_n], fontsize=11)
-    ax.set_xlabel("n (number of swaps)", fontsize=12)
+    ax.set_xticks(range(len(all_pairs)))
+    ax.set_xticklabels(x_labels, fontsize=9, rotation=45, ha="right")
+    ax.set_xlabel("(m, n)", fontsize=12)
     ax.set_ylabel("Accuracy", fontsize=12)
     ax.set_ylim(0, 1.10)
     ax.axhline(DEFAULT_BASELINE, color="gray", linestyle="--", linewidth=1.5,
                label=f"Random baseline ({DEFAULT_BASELINE:.2f})")
-    ax.set_title(title or "Accuracy vs n", fontsize=13, fontweight="bold")
+    ax.set_title(title or "Accuracy vs Difficulty", fontsize=13, fontweight="bold")
     ax.legend(fontsize=9, loc="upper right")
     plt.tight_layout()
     for ext in ("pdf", "png"):
         p = os.path.join(output_dir, f"accuracy_vs_n_line.{ext}")
         plt.savefig(p, dpi=300); print(f"  Saved → {p}")
     plt.close()
-
 
 # ---------------------------------------------------------------------------
 # Plot 2 — Bar chart
