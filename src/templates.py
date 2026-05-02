@@ -242,7 +242,8 @@ def _collisions_generator(m: int, n: int, rng: random.Random) -> dict:
     num_steps = max(1, n)
 
     particles = _get_particle_names(num_particles)
-    velocities = rng.sample(range(1, 1000), num_particles)
+    velocity_pool = range(1, max(1001, num_particles * 2))
+    velocities = rng.sample(velocity_pool, num_particles)
     initial = dict(zip(particles, velocities))
 
     state = dict(initial)
