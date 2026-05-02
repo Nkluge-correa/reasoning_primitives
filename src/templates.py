@@ -759,8 +759,11 @@ def get_task(name: str, csv_path: str | None = None) -> TaskTemplate:
         base_gen = template._generator
         def _gen_with_path(m, n, rng, _gen=base_gen, _path=csv_path):
             return _gen(m, n, rng, csv_path=_path)
-        import copy
-        template = copy.replace(template, _generator=_gen_with_path)
+        template = TaskTemplate(
+            name=template.name,
+            system_prompt=template.system_prompt,
+            _generator=_gen_with_path,
+        )
 
     return template
 
