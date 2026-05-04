@@ -150,7 +150,7 @@ python generator.py \
 > hold many intermediate values in memory simultaneously rather than just the previous layer.
 >
 > **Difficulty knobs** (tunable in `_dag_generator` in `templates.py`):
-> - `op1` distant-layer probability (default `0.4`): controls how often the first operand
+> - `op1` distant-layer probability (default `0.5`): controls how often the first operand
 >   references a non-adjacent layer. Higher = more long-range dependencies = harder.
 >   Range: `0.0` (always previous layer, easiest) to `1.0` (always distant, hardest).
 > - `op2` variable probability (default `0.5`): controls how often the second operand is
