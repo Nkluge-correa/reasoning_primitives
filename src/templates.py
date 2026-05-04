@@ -785,7 +785,7 @@ def _dag_generator(m: int, n: int, rng: random.Random) -> dict:
             all_prev_vars = [v for past_layer in layer_vars for v in past_layer]
 
             # 40% chance to pick from a distant layer (2+ layers back) when deep enough
-            if layer >= 3 and rng.random() < 0.4:
+            if layer >= 3 and rng.random() < 0.5:
                 distant_vars = [v for past_layer in layer_vars[:-1] for v in past_layer]
                 op1 = rng.choice(distant_vars)
             else:
