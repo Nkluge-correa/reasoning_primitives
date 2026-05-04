@@ -60,10 +60,14 @@ def load_eval_file(path: str) -> dict:
 
 def collect_series(eval_files, max_m=None):
     series = {}
+    tasks_found = set()                          # ← collect task names
     for path in sorted(eval_files):
         data = load_eval_file(path)
         model = data.get("model_name", os.path.splitext(os.path.basename(path))[0])
         short = model.split("/")[-1] if "/" in model else model
+
+        task = data.get("task", "unknown")       # ← read task from JSON
+        tasks_found.add(task)
 
         acc_by_mn = {}
         pwa_by_mn = {}
@@ -74,7 +78,7 @@ def collect_series(eval_files, max_m=None):
             except ValueError:
                 continue
             if max_m is not None and m > max_m:
-                continue                          # ← skip beyond cap
+                continue
             if d.get("accuracy") is not None:
                 acc_by_mn[(m, n)] = d["accuracy"]
             if d.get("parsed_weighted_accuracy") is not None:
@@ -83,8 +87,7 @@ def collect_series(eval_files, max_m=None):
         if acc_by_mn:
             series[short] = {"accuracy": acc_by_mn, "pwa": pwa_by_mn}
 
-    return series
-
+    return series, tasks_found                   # ← return tasks too
 
 # ---------------------------------------------------------------------------
 # Plot 1 — Line plot
@@ -308,17 +311,21 @@ def main():
     for f in eval_files:
         print(f"  {f}")
 
-    series = collect_series(eval_files, max_m=args.max_m)
+    series, tasks_found = collect_series(eval_files, max_m=args.max_m)
     if not series:
         print("No plottable data found in the provided eval files.")
         return
 
+    # Use CLI --task if provided, otherwise auto-detect from JSON
+    task_str = args.task or ("_".join(sorted(tasks_found)) if tasks_found else "unknown")
+
     os.makedirs(args.output_dir, exist_ok=True)
     print(f"\nModels: {sorted(series.keys())}")
+    print(f"Task   : {task_str}")
     print(f"Output : {args.output_dir}\n")
 
-    plot_line(series, args.output_dir, title=args.title, task=args.task)
-    plot_pwa_line(series, args.output_dir, title=args.title, task=args.task)
+    plot_line(series, args.output_dir, title=args.title, task=task_str)
+    plot_pwa_line(series, args.output_dir, title=args.title, task=task_str)
     # plot_bar(series,  args.output_dir, title=args.title)
     # if not args.no_heatmap:
     #     plot_heatmap(series, args.output_dir, title=args.title)
