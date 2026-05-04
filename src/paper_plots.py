@@ -90,7 +90,7 @@ def collect_series(eval_files, max_m=None):
 # Plot 1 — Line plot
 # ---------------------------------------------------------------------------
 
-def plot_line(series, output_dir, title=""):
+def plot_line(series, output_dir, title="", task=None):
     all_pairs = sorted({pair for s in series.values() for pair in s["accuracy"]})
     x_labels  = [f"({m},{n})" for m, n in all_pairs]
 
@@ -120,12 +120,14 @@ def plot_line(series, output_dir, title=""):
     ax.set_title(title or "Accuracy vs Difficulty", fontsize=13, fontweight="bold")
     ax.legend(fontsize=9, loc="upper right")
     plt.tight_layout()
+    model_names = "_".join(sorted(series.keys()))
+    task_str = f"{task}_" if task else ""
     for ext in ("pdf", "png"):
-        p = os.path.join(output_dir, f"accuracy_vs_n_line.{ext}")
+        p = os.path.join(output_dir, f"accuracy_line_{task_str}{model_names}.{ext}")
         plt.savefig(p, dpi=300); print(f"  Saved → {p}")
     plt.close()
 
-def plot_pwa_line(series, output_dir, title=""):
+def plot_pwa_line(series, output_dir, title="", task=None):
     all_pairs = sorted({pair for s in series.values() for pair in s["pwa"]})
     x_labels  = [f"({m},{n})" for m, n in all_pairs]
 
@@ -156,8 +158,10 @@ def plot_pwa_line(series, output_dir, title=""):
                  fontsize=13, fontweight="bold")
     ax.legend(fontsize=9, loc="upper right")
     plt.tight_layout()
+    model_names = "_".join(sorted(series.keys()))
+    task_str = f"{task}_" if task else ""
     for ext in ("pdf", "png"):
-        p = os.path.join(output_dir, f"pwa_vs_n_line.{ext}")
+        p = os.path.join(output_dir, f"pwa_line_{task_str}{model_names}.{ext}")
         plt.savefig(p, dpi=300); print(f"  Saved → {p}")
     plt.close()
 
@@ -283,6 +287,10 @@ def main():
     "--max-m", type=int, default=None,
     help="Cap plots at this m value (e.g. 2048 to exclude larger difficulties).",
     )
+    parser.add_argument(
+        "--task", default=None,
+        help="Task name to include in output filenames (e.g. olmo_original, dyck).",
+    )
     args = parser.parse_args()
 
     # Expand any globs
@@ -309,8 +317,8 @@ def main():
     print(f"\nModels: {sorted(series.keys())}")
     print(f"Output : {args.output_dir}\n")
 
-    plot_line(series, args.output_dir, title=args.title)
-    plot_pwa_line(series, args.output_dir, title=args.title)
+    plot_line(series, args.output_dir, title=args.title, task=args.task)
+    plot_pwa_line(series, args.output_dir, title=args.title, task=args.task)
     # plot_bar(series,  args.output_dir, title=args.title)
     # if not args.no_heatmap:
     #     plot_heatmap(series, args.output_dir, title=args.title)

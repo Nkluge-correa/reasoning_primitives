@@ -25,23 +25,16 @@ def check_file(path: str, tokenizer, sample_m_values: list[int] | None = None) -
         print("  (empty)")
         return
 
-    # Get all unique m values in this file
-    all_m = sorted({s["m"] for s in data if "m" in s})
+    # Get all unique (m, n) pairs in this file
+    all_pairs = sorted({(s["m"], s["n"]) for s in data if "m" in s and "n" in s})
 
-    # If specific m values requested, filter to those; otherwise use all
-    if sample_m_values:
-        check_m = [m for m in sample_m_values if m in all_m]
-    else:
-        check_m = all_m
-
-    for m_val in check_m:
-        samples = [s for s in data if s.get("m") == m_val]
+    for m_val, n_val in all_pairs:
+        samples = [s for s in data if s.get("m") == m_val and s.get("n") == n_val]
         if not samples:
             continue
         prompt = samples[0]["prompt"]
         tokens = tokenizer(prompt, return_tensors="pt")
         n_tokens = tokens.input_ids.shape[1]
-        n_val = samples[0].get("n", "?")
         print(f"  m={m_val:<6} n={n_val:<6} tokens: {n_tokens}")
 
 
