@@ -359,7 +359,7 @@ python paper_plots.py \
     --max-m 2048
 ```
 
-### Dyck end-to-end example
+<!-- ### Dyck end-to-end example
 
 ```bash
 # 1. Generate — cartesian over stack depth × sequence length
@@ -413,7 +413,7 @@ python eval.py --input results/dag_arithmetic_olmo3_instruct.json
 python paper_plots.py --inputs scores/*_eval.json --output-dir figures/
 ```
 
----
+--- -->
 
 ## Adding a new task
 
