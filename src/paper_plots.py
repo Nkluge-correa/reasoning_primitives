@@ -84,8 +84,21 @@ def collect_series(eval_files, max_m=None):
             if d.get("parsed_weighted_accuracy") is not None:
                 pwa_by_mn[(m, n)] = d["parsed_weighted_accuracy"]
 
+        parse_rate_by_mn = {}
+        for key, d in data.get("per_m_n", {}).items():
+            try:
+                m_str, n_str = key.split("x")
+                m, n = int(m_str), int(n_str)
+            except ValueError:
+                continue
+            if max_m is not None and m > max_m:
+                continue
+            if d.get("n_scored") is not None and d.get("n_total") is not None:
+                if d["n_total"] > 0:
+                    parse_rate_by_mn[(m, n)] = round(d["n_scored"] / d["n_total"], 4)
+
         if acc_by_mn:
-            series[short] = {"accuracy": acc_by_mn, "pwa": pwa_by_mn}
+            series[short] = {"accuracy": acc_by_mn, "pwa": pwa_by_mn, "parse_rate": parse_rate_by_mn}
 
     return series, tasks_found                   # ← return tasks too
 
@@ -165,6 +178,44 @@ def plot_pwa_line(series, output_dir, title="", task=None):
     task_str = f"{task}_" if task else ""
     for ext in ("pdf", "png"):
         p = os.path.join(output_dir, f"pwa_line_{task_str}{model_names}.{ext}")
+        plt.savefig(p, dpi=300); print(f"  Saved → {p}")
+    plt.close()
+
+
+def plot_parse_rate(series, output_dir, title="", task=None):
+    all_pairs = sorted({pair for s in series.values() for pair in s["parse_rate"]})
+    x_labels  = [f"({m},{n})" for m, n in all_pairs]
+
+    fig, ax = plt.subplots(figsize=(max(9, len(all_pairs) * 0.8), 5))
+
+    for i, (model, s) in enumerate(sorted(series.items())):
+        ys = [s["parse_rate"].get(pair, float("nan")) for pair in all_pairs]
+        ax.plot(range(len(all_pairs)), ys,
+                label=model,
+                color=COLORS[i % len(COLORS)],
+                marker=MARKERS[i % len(MARKERS)],
+                linestyle="-", linewidth=2, markersize=8)
+        for x, y in zip(range(len(all_pairs)), ys):
+            if not np.isnan(y):
+                ax.annotate(f"{y:.2f}", xy=(x, y), xytext=(0, 9),
+                            textcoords="offset points",
+                            ha="center", fontsize=7,
+                            color=COLORS[i % len(COLORS)])
+
+    ax.set_xticks(range(len(all_pairs)))
+    ax.set_xticklabels(x_labels, fontsize=9, rotation=45, ha="right")
+    ax.set_xlabel("(m, n)", fontsize=12)
+    ax.set_ylabel("Parse Rate (n_scored / n_total)", fontsize=12)
+    ax.set_ylim(0, 1.10)
+    ax.axhline(1.0, color="gray", linestyle="--", linewidth=1.5,
+               label="Perfect parse rate (1.0)")
+    ax.set_title(title or "Parse Rate vs Difficulty", fontsize=13, fontweight="bold")
+    ax.legend(fontsize=9, loc="lower left")
+    plt.tight_layout()
+    model_names = "_".join(sorted(series.keys()))
+    task_str = f"{task}_" if task else ""
+    for ext in ("pdf", "png"):
+        p = os.path.join(output_dir, f"parse_rate_line_{task_str}{model_names}.{ext}")
         plt.savefig(p, dpi=300); print(f"  Saved → {p}")
     plt.close()
 
@@ -326,6 +377,7 @@ def main():
 
     plot_line(series, args.output_dir, title=args.title, task=task_str)
     plot_pwa_line(series, args.output_dir, title=args.title, task=task_str)
+    plot_parse_rate(series, args.output_dir, title=args.title, task=task_str)
     # plot_bar(series,  args.output_dir, title=args.title)
     # if not args.no_heatmap:
     #     plot_heatmap(series, args.output_dir, title=args.title)
