@@ -59,18 +59,24 @@ def load_eval_file(path: str) -> dict:
 
 
 def collect_series(eval_files, max_m=None):
-    series = {}
-    tasks_found = set()                          # ← collect task names
+    # First pass: accumulate values per (model, pair) across seeds
+    raw = {}        # {short_model: {pair: [val1, val2, ...]}}
+    tasks_found = set()
+
     for path in sorted(eval_files):
         data = load_eval_file(path)
         model = data.get("model_name", os.path.splitext(os.path.basename(path))[0])
         short = model.split("/")[-1] if "/" in model else model
-
-        task = data.get("task", "unknown")       # ← read task from JSON
+        task  = data.get("task", "unknown")
         tasks_found.add(task)
 
-        acc_by_mn = {}
-        pwa_by_mn = {}
+        if short not in raw:
+            raw[short] = {
+                "accuracy":   {},
+                "pwa":        {},
+                "parse_rate": {},
+            }
+
         for key, d in data.get("per_m_n", {}).items():
             try:
                 m_str, n_str = key.split("x")
@@ -79,28 +85,47 @@ def collect_series(eval_files, max_m=None):
                 continue
             if max_m is not None and m > max_m:
                 continue
+            pair = (m, n)
+
             if d.get("accuracy") is not None:
-                acc_by_mn[(m, n)] = d["accuracy"]
+                raw[short]["accuracy"].setdefault(pair, []).append(d["accuracy"])
             if d.get("parsed_weighted_accuracy") is not None:
-                pwa_by_mn[(m, n)] = d["parsed_weighted_accuracy"]
+                raw[short]["pwa"].setdefault(pair, []).append(d["parsed_weighted_accuracy"])
+            if d.get("n_scored") is not None and d.get("n_total", 0) > 0:
+                raw[short]["parse_rate"].setdefault(pair, []).append(
+                    d["n_scored"] / d["n_total"]
+                )
 
-        parse_rate_by_mn = {}
-        for key, d in data.get("per_m_n", {}).items():
-            try:
-                m_str, n_str = key.split("x")
-                m, n = int(m_str), int(n_str)
-            except ValueError:
-                continue
-            if max_m is not None and m > max_m:
-                continue
-            if d.get("n_scored") is not None and d.get("n_total") is not None:
-                if d["n_total"] > 0:
-                    parse_rate_by_mn[(m, n)] = round(d["n_scored"] / d["n_total"], 4)
+    # Second pass: compute mean and std across seeds
+    series = {}
+    for short, metrics in raw.items():
+        acc_mean, acc_std     = {}, {}
+        pwa_mean, pwa_std     = {}, {}
+        rate_mean, rate_std   = {}, {}
 
-        if acc_by_mn:
-            series[short] = {"accuracy": acc_by_mn, "pwa": pwa_by_mn, "parse_rate": parse_rate_by_mn}
+        for pair, vals in metrics["accuracy"].items():
+            acc_mean[pair] = float(np.mean(vals))
+            acc_std[pair]  = float(np.std(vals)) if len(vals) > 1 else 0.0
 
-    return series, tasks_found                   # ← return tasks too
+        for pair, vals in metrics["pwa"].items():
+            pwa_mean[pair] = float(np.mean(vals))
+            pwa_std[pair]  = float(np.std(vals)) if len(vals) > 1 else 0.0
+
+        for pair, vals in metrics["parse_rate"].items():
+            rate_mean[pair] = float(np.mean(vals))
+            rate_std[pair]  = float(np.std(vals)) if len(vals) > 1 else 0.0
+
+        if acc_mean:
+            series[short] = {
+                "accuracy":       acc_mean,
+                "accuracy_std":   acc_std,
+                "pwa":            pwa_mean,
+                "pwa_std":        pwa_std,
+                "parse_rate":     rate_mean,
+                "parse_rate_std": rate_std,
+            }
+
+    return series, tasks_found# ← return tasks too
 
 # ---------------------------------------------------------------------------
 # Plot 1 — Line plot
@@ -113,18 +138,27 @@ def plot_line(series, output_dir, title="", task=None):
     fig, ax = plt.subplots(figsize=(max(9, len(all_pairs) * 0.8), 5))
 
     for i, (model, s) in enumerate(sorted(series.items())):
-        ys = [s["accuracy"].get(pair, float("nan")) for pair in all_pairs]
-        ax.plot(range(len(all_pairs)), ys,
-                label=model,
-                color=COLORS[i % len(COLORS)],
-                marker=MARKERS[i % len(MARKERS)],
-                linestyle="-", linewidth=2, markersize=8)
-        for x, y in zip(range(len(all_pairs)), ys):
+        color  = COLORS[i % len(COLORS)]
+        marker = MARKERS[i % len(MARKERS)]
+        xs     = list(range(len(all_pairs)))
+        ys     = [s["accuracy"].get(pair, float("nan")) for pair in all_pairs]
+        ys_std = [s["accuracy_std"].get(pair, 0.0) for pair in all_pairs]
+
+        ax.plot(xs, ys, label=model, color=color,
+                marker=marker, linestyle="-", linewidth=2, markersize=8)
+
+        ys_arr  = np.array(ys,     dtype=float)
+        std_arr = np.array(ys_std, dtype=float)
+        ax.fill_between(xs,
+                        np.clip(ys_arr - std_arr, 0, 1),
+                        np.clip(ys_arr + std_arr, 0, 1),
+                        alpha=0.15, color=color)
+
+        for x, y in zip(xs, ys):
             if not np.isnan(y):
                 ax.annotate(f"{y:.2f}", xy=(x, y), xytext=(0, 9),
                             textcoords="offset points",
-                            ha="center", fontsize=7,
-                            color=COLORS[i % len(COLORS)])
+                            ha="center", fontsize=7, color=color)
 
     ax.set_xticks(range(len(all_pairs)))
     ax.set_xticklabels(x_labels, fontsize=9, rotation=45, ha="right")
@@ -149,19 +183,29 @@ def plot_pwa_line(series, output_dir, title="", task=None):
 
     fig, ax = plt.subplots(figsize=(max(9, len(all_pairs) * 0.8), 5))
 
+    # Replace the plotting loop inside plot_pwa_line with:
     for i, (model, s) in enumerate(sorted(series.items())):
-        ys = [s["pwa"].get(pair, float("nan")) for pair in all_pairs]
-        ax.plot(range(len(all_pairs)), ys,
-                label=model,
-                color=COLORS[i % len(COLORS)],
-                marker=MARKERS[i % len(MARKERS)],
-                linestyle="-", linewidth=2, markersize=8)
-        for x, y in zip(range(len(all_pairs)), ys):
+        color  = COLORS[i % len(COLORS)]
+        marker = MARKERS[i % len(MARKERS)]
+        xs     = list(range(len(all_pairs)))
+        ys     = [s["pwa"].get(pair, float("nan")) for pair in all_pairs]
+        ys_std = [s["pwa_std"].get(pair, 0.0) for pair in all_pairs]
+
+        ax.plot(xs, ys, label=model, color=color,
+                marker=marker, linestyle="-", linewidth=2, markersize=8)
+
+        ys_arr  = np.array(ys,     dtype=float)
+        std_arr = np.array(ys_std, dtype=float)
+        ax.fill_between(xs,
+                        np.clip(ys_arr - std_arr, 0, 1),
+                        np.clip(ys_arr + std_arr, 0, 1),
+                        alpha=0.15, color=color)
+
+        for x, y in zip(xs, ys):
             if not np.isnan(y):
                 ax.annotate(f"{y:.2f}", xy=(x, y), xytext=(0, 9),
                             textcoords="offset points",
-                            ha="center", fontsize=7,
-                            color=COLORS[i % len(COLORS)])
+                            ha="center", fontsize=7, color=color)
 
     ax.set_xticks(range(len(all_pairs)))
     ax.set_xticklabels(x_labels, fontsize=9, rotation=45, ha="right")
@@ -188,19 +232,29 @@ def plot_parse_rate(series, output_dir, title="", task=None):
 
     fig, ax = plt.subplots(figsize=(max(9, len(all_pairs) * 0.8), 5))
 
+    # Replace the plotting loop inside plot_parse_rate with:
     for i, (model, s) in enumerate(sorted(series.items())):
-        ys = [s["parse_rate"].get(pair, float("nan")) for pair in all_pairs]
-        ax.plot(range(len(all_pairs)), ys,
-                label=model,
-                color=COLORS[i % len(COLORS)],
-                marker=MARKERS[i % len(MARKERS)],
-                linestyle="-", linewidth=2, markersize=8)
-        for x, y in zip(range(len(all_pairs)), ys):
+        color  = COLORS[i % len(COLORS)]
+        marker = MARKERS[i % len(MARKERS)]
+        xs     = list(range(len(all_pairs)))
+        ys     = [s["parse_rate"].get(pair, float("nan")) for pair in all_pairs]
+        ys_std = [s["parse_rate_std"].get(pair, 0.0) for pair in all_pairs]
+
+        ax.plot(xs, ys, label=model, color=color,
+                marker=marker, linestyle="-", linewidth=2, markersize=8)
+
+        ys_arr  = np.array(ys,     dtype=float)
+        std_arr = np.array(ys_std, dtype=float)
+        ax.fill_between(xs,
+                        np.clip(ys_arr - std_arr, 0, 1),
+                        np.clip(ys_arr + std_arr, 0, 1),
+                        alpha=0.15, color=color)
+
+        for x, y in zip(xs, ys):
             if not np.isnan(y):
                 ax.annotate(f"{y:.2f}", xy=(x, y), xytext=(0, 9),
                             textcoords="offset points",
-                            ha="center", fontsize=7,
-                            color=COLORS[i % len(COLORS)])
+                            ha="center", fontsize=7, color=color)
 
     ax.set_xticks(range(len(all_pairs)))
     ax.set_xticklabels(x_labels, fontsize=9, rotation=45, ha="right")

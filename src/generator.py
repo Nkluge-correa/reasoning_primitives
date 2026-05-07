@@ -75,6 +75,7 @@ def generate_dataset(
                     "task": task_name,
                     "m": m,
                     "n": n,
+                    "seed": seed,  
                     "system_prompt": task.system_prompt,
                     "sample_id": len(samples),
                 }

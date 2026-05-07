@@ -142,6 +142,7 @@ def compute_accuracy(samples: list[dict]) -> dict:
     return {
         "model_name": model_name,
         "task": task,
+        "seed": samples[0].get("seed", "unknown") if samples else "unknown", 
         "n_total": n_total,
         "n_scored": n_scored,
         "n_correct": n_correct,

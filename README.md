@@ -145,7 +145,7 @@ python generator.py \
 > **Note for `dag_arithmetic`:** `m` is the number of variables per layer (width) and
 > `n` is the number of computation layers (depth). Operations are limited to `+` and `-`.
 > Cartesian mode is recommended because width and depth are independent difficulty axes.
-> With 40% probability, nodes reference variables from non-adjacent earlier layers,
+> With 50% probability, nodes reference variables from non-adjacent earlier layers,
 > meaning a computation in layer 9 may depend on a value from layer 2 — the model must
 > hold many intermediate values in memory simultaneously rather than just the previous layer.
 >
@@ -280,6 +280,15 @@ Prints a summary to stdout and writes a JSON file with:
 
 Add `--no-samples` to omit per-sample detail and keep the output file small.
 
+To run eval on all inference files in a directory at once:
+
+```bash
+for f in ../results/*.json; do
+    [[ "$f" == *_eval.json ]] && continue
+    python eval.py --input "$f" --output "${f%.json}_eval.json"
+done
+```
+
 ---
 
 ## Step 4 — Plot results
@@ -290,12 +299,15 @@ python paper_plots.py \
     --output-dir figures/
 ```
 
-Produces two figures in both `.pdf` and `.png`:
+Produces three figures in both `.pdf` and `.png`:
 - `accuracy_line_<task>_<models>` — accuracy per model across difficulty levels
 - `pwa_line_<task>_<models>` — parsed weighted accuracy per model across difficulty levels
+- `parse_rate_line_<task>_<models>` — fraction of successfully parsed responses per model across difficulty levels
 
 The task name and model names are automatically detected from the eval JSON files and
-included in the output filenames.
+included in the output filenames. When multiple eval files are provided for the same
+model (e.g. from different random seeds), the plots automatically show the mean across
+seeds with a shaded region indicating ±1 standard deviation.
 
 **All plot options:**
 
@@ -318,6 +330,20 @@ python paper_plots.py \
     --output-dir figures/ \
     --max-m 2048
 ```
+
+> **Multiple seeds:** To get statistically more robust results, generate datasets with
+> multiple random seeds, run inference and eval on each, then pass all eval files
+> together. The plotting script automatically averages across seeds and shows ±1 std
+> as a shaded band:
+> ```bash
+> # Generate with 3 seeds
+> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 42
+> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 123
+> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 456
+>
+> # After inference and eval on all 3:
+> python paper_plots.py --inputs scores/olmo_original_*_eval.json --output-dir figures/
+> ```
 
 ---
 
@@ -359,7 +385,7 @@ python paper_plots.py \
     --max-m 2048
 ```
 
-<!-- ### Dyck end-to-end example
+### Dyck end-to-end example
 
 ```bash
 # 1. Generate — cartesian over stack depth × sequence length
@@ -377,7 +403,8 @@ python check_token_lengths.py --task dyck
 sbatch inference.sh \
     --input  /path/to/data/dyck_m1_2_4_8_16_n8_16_32_64_128_s100.json \
     --model  allenai/OLMo-3-7B-Instruct \
-    --output /path/to/results/dyck_olmo3_instruct.json
+    --output /path/to/results/dyck_olmo3_instruct.json \
+    --max-model-len 3000 --max-tokens 256
 
 # 4. Evaluate
 python eval.py --input results/dyck_olmo3_instruct.json
@@ -404,7 +431,8 @@ python check_token_lengths.py --task dag_arithmetic
 sbatch inference.sh \
     --input  /path/to/data/dag_arithmetic_m2_4_8_16_n2_4_8_16_s100.json \
     --model  allenai/OLMo-3-7B-Instruct \
-    --output /path/to/results/dag_arithmetic_olmo3_instruct.json
+    --output /path/to/results/dag_arithmetic_olmo3_instruct.json \
+    --max-model-len 26000 --max-tokens 256
 
 # 4. Evaluate
 python eval.py --input results/dag_arithmetic_olmo3_instruct.json
@@ -413,7 +441,7 @@ python eval.py --input results/dag_arithmetic_olmo3_instruct.json
 python paper_plots.py --inputs scores/*_eval.json --output-dir figures/
 ```
 
---- -->
+---
 
 ## Adding a new task
 
