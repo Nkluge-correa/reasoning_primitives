@@ -336,7 +336,7 @@ def _collisions_generator(m: int, n: int, rng: random.Random) -> dict:
 # Task: astro  (exoplanet table state-based recall)
 # ============================================================================
 
-_ASTRO_SYSTEM_PROMPT = _ASTRO_SYSTEM_PROMPT = """You are a precise reasoning assistant.
+_ASTRO_SYSTEM_PROMPT = """You are a precise reasoning assistant.
 
 You will be given:
 1. A table of exoplanet data with planet names and various properties
@@ -681,8 +681,8 @@ How to solve:
 - Read the sequence token by token from left to right.
 - Maintain a stack: push every opener ( [ { onto the stack.
 - When you see a closer ) ] }, pop the top of the stack.
-- The masked token _ is always a closer — it must match the opener
-  currently on top of the stack at that position.
+- The masked token _ must match the opener currently on top of the stack
+  at that position — identify that opener and pick its corresponding closer.
 - Do NOT skip any token. Do NOT guess based on surrounding tokens alone.
 
 Output requirements:
@@ -690,14 +690,14 @@ Output requirements:
 
 Format:
 {
-  "answer": "A | B | C | D"
+  "answer": "A | B | C"
 }
 """
 
 _DYCK_ONE_SHOT_EXAMPLE = """
 Example:
 
-Expression (8 tokens): ( [ { _ } ] ) ( )
+Expression (8 tokens): ( [ { _ ] ) ( )
 
 Bracket pairs: ( )  [ ]  { }
 Every opener must be closed by its matching closer in the correct order.
@@ -708,13 +708,17 @@ What token must replace _ at position 4?
 A) )
 B) }
 C) ]
-D) (
 
 Step-by-step:
 pos 1: ( → stack: [(]
 pos 2: [ → stack: [(, []
 pos 3: { → stack: [(, [, {]
 pos 4: _ → top of stack is { → must close with } → answer is B
+pos 5: ] → pops [ → stack: [(]
+pos 6: ) → pops ( → stack: []
+pos 7: ( → stack: [(]
+pos 8: ) → pops ( → stack: []
+Valid complete Dyck expression ✓
 
 {"answer": "B"}
 """
@@ -785,13 +789,12 @@ def _dyck_generator(m: int, n: int, rng: random.Random) -> dict:
         )
 
     # --- Build MC options ---
-    all_tokens   = _DYCK_OPENERS + _DYCK_CLOSERS
-    wrong_tokens = [t for t in all_tokens if t != correct_token]
-    wrong_chosen = rng.sample(wrong_tokens, 3)
+    wrong_closers = [t for t in _DYCK_CLOSERS if t != correct_token]  # always 2
+    rng.shuffle(wrong_closers)
 
-    option_values = [correct_token] + wrong_chosen
+    option_values = [correct_token] + wrong_closers
     rng.shuffle(option_values)
-    labels  = ["A", "B", "C", "D"]
+    labels  = ["A", "B", "C"]
     options = dict(zip(labels, option_values))
     correct_label = next(lbl for lbl, val in options.items() if val == correct_token)
 
@@ -810,6 +813,7 @@ def _dyck_generator(m: int, n: int, rng: random.Random) -> dict:
             if sim_stack:
                 sim_stack.pop()
 
+    # With this:
     lines = [
         f"Expression ({seq_len} tokens): {expr_str}",
         "",
@@ -820,7 +824,7 @@ def _dyck_generator(m: int, n: int, rng: random.Random) -> dict:
         "",
         "### Options",
     ]
-    for lbl in labels:
+    for lbl in ["A", "B", "C"]:
         lines.append(f"{lbl}) {options[lbl]}")
 
     return {
@@ -829,7 +833,7 @@ def _dyck_generator(m: int, n: int, rng: random.Random) -> dict:
         "option_A": str(options["A"]),
         "option_B": str(options["B"]),
         "option_C": str(options["C"]),
-        "option_D": str(options["D"]),
+        "option_D": "",
         "metadata": {
             "m": target_depth,
             "n": seq_len,

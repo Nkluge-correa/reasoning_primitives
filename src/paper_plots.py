@@ -40,6 +40,7 @@ MARKERS = ["o",        "s",       "^",       "D",       "v",       "P",       "X
 
 RANDOM_BASELINE = {4: 0.25}          # 4-option MC -> 0.25; 2-option -> 0.50
 DEFAULT_BASELINE = 0.25
+DYCK_BASELINE = 0.33 
 
 plt.rcParams.update({
     "font.family": "sans-serif",
@@ -165,8 +166,11 @@ def plot_line(series, output_dir, title="", task=None):
     ax.set_xlabel("(m, n)", fontsize=12)
     ax.set_ylabel("Accuracy", fontsize=12)
     ax.set_ylim(0, 1.10)
-    ax.axhline(DEFAULT_BASELINE, color="gray", linestyle="--", linewidth=1.5,
-               label=f"Random baseline ({DEFAULT_BASELINE:.2f})")
+    # ax.axhline(DEFAULT_BASELINE, color="gray", linestyle="--", linewidth=1.5,
+    #            label=f"Random baseline ({DEFAULT_BASELINE:.2f})")
+    baseline = DYCK_BASELINE if task and "dyck" in task else DEFAULT_BASELINE
+    ax.axhline(baseline, color="gray", linestyle="--", linewidth=1.5,
+           label=f"Random baseline ({baseline:.2f})")
     ax.set_title(title or "Accuracy vs Difficulty", fontsize=13, fontweight="bold")
     ax.legend(fontsize=9, loc="upper right")
     plt.tight_layout()
@@ -212,8 +216,11 @@ def plot_pwa_line(series, output_dir, title="", task=None):
     ax.set_xlabel("(m, n)", fontsize=12)
     ax.set_ylabel("Parsed Weighted Accuracy", fontsize=12)
     ax.set_ylim(0, 1.10)
-    ax.axhline(DEFAULT_BASELINE, color="gray", linestyle="--", linewidth=1.5,
-               label=f"Random baseline ({DEFAULT_BASELINE:.2f})")
+    # ax.axhline(DEFAULT_BASELINE, color="gray", linestyle="--", linewidth=1.5,
+    #            label=f"Random baseline ({DEFAULT_BASELINE:.2f})")
+    baseline = DYCK_BASELINE if task and "dyck" in task else DEFAULT_BASELINE
+    ax.axhline(baseline, color="gray", linestyle="--", linewidth=1.5,
+           label=f"Random baseline ({baseline:.2f})")
     ax.set_title(title or "Parsed Weighted Accuracy vs Difficulty",
                  fontsize=13, fontweight="bold")
     ax.legend(fontsize=9, loc="upper right")
