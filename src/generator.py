@@ -40,6 +40,7 @@ def generate_dataset(
     seed: int = 42,
     csv_path: str | None = None,
     mode: str = "zip",
+    shot: str = "zero",   
 ) -> list[dict]:
     """
     Generate *n_samples* per (m, n) pair.
@@ -48,6 +49,7 @@ def generate_dataset(
     mode='cartesian' — all combinations:       (4,4),(4,8),(8,4),(8,8)
     """
     task = get_task(task_name, csv_path=csv_path)
+    system_prompt = task.get_system_prompt(shot=shot)
     rng = random.Random(seed)
     samples = []
 
@@ -76,7 +78,8 @@ def generate_dataset(
                     "m": m,
                     "n": n,
                     "seed": seed,  
-                    "system_prompt": task.system_prompt,
+                    "shot": shot,                    
+                    "system_prompt": system_prompt,  
                     "sample_id": len(samples),
                 }
             )
@@ -163,6 +166,13 @@ def main():
         default=42,
         help="Random seed (default: 42).",
     )
+    # Add after the --seed argument:
+    parser.add_argument(
+    "--shot",
+    choices=["zero", "one"],
+    default="zero",
+    help="Prompting mode: 'zero' for zero-shot, 'one' for one-shot (default: zero).",
+)
     args = parser.parse_args()
 
     # n defaults to same as m if not provided
@@ -197,6 +207,7 @@ def main():
     print(f"Seed       : {args.seed}")
     print(f"Output dir : {args.output_dir}")
     print(f"Output file: {output_path}")
+    print(f"Shot mode  : {args.shot}")
     print()
 
     t0 = time.time()
@@ -208,6 +219,7 @@ def main():
         seed=args.seed,
         csv_path=args.csv_path,
         mode=args.mode,
+        shot=args.shot,
     )
 
     save_json(samples, output_path)

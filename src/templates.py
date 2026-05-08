@@ -135,16 +135,19 @@ def _load_planets(csv_path: str) -> list[dict]:
 class TaskTemplate:
     name: str
     system_prompt: str
-    # callable(difficulty, rng) -> sample dict
     _generator: Callable = field(repr=False)
+    _one_shot_example: str = field(default="", repr=False)
+
+    def get_system_prompt(self, shot: str = "zero") -> str:
+        """
+        Return system prompt for the given shot mode.
+        shot: 'zero' or 'one'
+        """
+        if shot == "one" and self._one_shot_example:
+            return self.system_prompt + self._one_shot_example
+        return self.system_prompt
 
     def generate_sample(self, m: int, n: int, rng: random.Random | None = None) -> dict:
-        """
-        Generate one sample.
-
-        m : first axis of difficulty (particles / rows / bit-array size)
-        n : second axis of difficulty (collision steps / swaps / swap lines)
-        """
         if rng is None:
             rng = random.Random()
         return self._generator(m, n, rng)
@@ -213,12 +216,13 @@ Task:
 
 Core rule (MUST be applied exactly):
 - When two equal-mass particles collide, they EXCHANGE velocities.
-- This is equivalent to swapping their velocity values.
+- This is equivalent to swapping their velocity values simultaneously.
+- If A collides with B: new_A = old_B, new_B = old_A. Both update at once.
 
 Reasoning requirements:
-- Maintain an explicit mapping: particle → velocity.
+- Maintain an explicit mapping: particle → current velocity.
 - Apply each collision in order.
-- After each collision, update BOTH particles' velocities.
+- After each collision, update BOTH particles' velocities before moving to the next.
 - Do NOT skip steps.
 - Do NOT infer physics beyond the given rule.
 
@@ -232,6 +236,34 @@ Format:
 }
 """
 
+_COLLISIONS_ONE_SHOT_EXAMPLE = """
+Example:
+
+Initial velocities:
+- A = 10
+- B = 20
+- C = 30
+
+Collisions:
+1. A collides with B
+2. B collides with C
+
+Question: What is the velocity of A after all collisions?
+
+### Options
+A) 10
+B) 20
+C) 30
+D) 40
+
+Step-by-step:
+Initial: A=10, B=20, C=30
+After collision 1 (A↔B): A=20, B=10, C=30
+After collision 2 (B↔C): A=20, B=30, C=10
+Final: A=20 → answer is B
+
+{"answer": "B"}
+"""
 
 def _collisions_generator(m: int, n: int, rng: random.Random) -> dict:
     """
@@ -304,15 +336,23 @@ def _collisions_generator(m: int, n: int, rng: random.Random) -> dict:
 # Task: astro  (exoplanet table state-based recall)
 # ============================================================================
 
-_ASTRO_SYSTEM_PROMPT = """You are a precise reasoning assistant.
+_ASTRO_SYSTEM_PROMPT = _ASTRO_SYSTEM_PROMPT = """You are a precise reasoning assistant.
 
 You will be given:
-1. A table of exoplanet data
-2. Variable assignments mapping variable names to column values
+1. A table of exoplanet data with planet names and various properties
+2. Variable assignments mapping variable names to values from a specific column
 3. One or more swap operations (Python-style simultaneous assignment)
-4. A multiple-choice question asking which option matches the final value
+4. A question asking which planet corresponds to a variable after all swaps
 
-Trace the swaps carefully and determine the correct option.
+How to solve:
+- Each variable (a, b, c, ...) starts assigned to a specific value from the
+  table and therefore corresponds to a specific planet.
+- Each swap line exchanges the values of two variables simultaneously:
+  x, y = y, x means x gets y's current value and y gets x's current value.
+- Track which value each variable holds after every swap.
+- At the end, find which planet in the table has the value that the queried
+  variable currently holds.
+- Apply every swap in order. Do NOT skip any.
 
 Output requirements:
 - Return EXACTLY one JSON object.
@@ -323,7 +363,38 @@ Format:
   "answer": "A | B | C | D"
 }
 """
+_ASTRO_ONE_SHOT_EXAMPLE = """
+Example:
 
+| Planet | Host Star | Orbital Period (days) |
+| --- | --- | --- |
+| Kepler-10 b | Kepler-10 | 0.837495 |
+| HD-209458 b | HD-209458 | 3.524749 |
+| WASP-17 b | WASP-17 | 3.734747 |
+| GJ-436 b | GJ-436 | 2.643904 |
+
+Consider the following Orbital Period (days): a, b, c, d = 0.837495, 3.524749, 3.734747, 2.643904
+
+Consider the following swapping:
+- a, b = b, a
+- b, c = c, b
+
+The Planet with the Orbital Period (days) = a is:
+
+### Options
+A) Kepler-10 b
+B) HD-209458 b
+C) WASP-17 b
+D) GJ-436 b
+
+Step-by-step:
+Initial: a=0.837495 (Kepler-10 b), b=3.524749 (HD-209458 b), c=3.734747 (WASP-17 b), d=2.643904 (GJ-436 b)
+After a, b = b, a: a=3.524749 (HD-209458 b), b=0.837495 (Kepler-10 b)
+After b, c = c, b: b=3.734747 (WASP-17 b), c=0.837495 (Kepler-10 b)
+Final: a=3.524749 → HD-209458 b → answer is B
+
+{"answer": "B"}
+"""
 def _astro_generator(m: int, n: int, rng: random.Random, csv_path: str = _DEFAULT_CSV_PATH) -> dict:
     """
     m = number of table rows shown (minimum 4).
@@ -467,6 +538,30 @@ Format:
 }
 """
 
+_SBR_ONE_SHOT_EXAMPLE = """
+Example:
+
+bits = [0, 1, 0, 1, 0]  # 5 bits
+a, b, c, d, e = 0, 1, 2, 3, 4  # 0 to 4
+a, b = b, a
+b, c = c, b
+assert bits[a] == _  # 0 or 1
+
+### Options
+A) 0
+B) 1
+C) 2
+D) 3
+
+Step-by-step:
+Initial: a=0, b=1, c=2, d=3, e=4
+After a, b = b, a: a=1, b=0
+After b, c = c, b: b=2, c=0
+Final: a=1 → bits[1] = 1 → answer is B
+
+{"answer": "B"}
+"""
+
 # Number of pointer variables — fixed at 5 to match the paper.
 _SBR_NUM_VARS = 5
 _SBR_VAR_NAMES = ["a", "b", "c", "d", "e"]
@@ -582,6 +677,14 @@ Task:
 - You are given a Dyck expression with one token masked as _.
 - You must determine what token _ must be to keep the expression valid.
 
+How to solve:
+- Read the sequence token by token from left to right.
+- Maintain a stack: push every opener ( [ { onto the stack.
+- When you see a closer ) ] }, pop the top of the stack.
+- The masked token _ is always a closer — it must match the opener
+  currently on top of the stack at that position.
+- Do NOT skip any token. Do NOT guess based on surrounding tokens alone.
+
 Output requirements:
 - Return EXACTLY one JSON object, no other text.
 
@@ -589,6 +692,31 @@ Format:
 {
   "answer": "A | B | C | D"
 }
+"""
+
+_DYCK_ONE_SHOT_EXAMPLE = """
+Example:
+
+Expression (8 tokens): ( [ { _ } ] ) ( )
+
+Bracket pairs: ( )  [ ]  { }
+Every opener must be closed by its matching closer in the correct order.
+
+What token must replace _ at position 4?
+
+### Options
+A) )
+B) }
+C) ]
+D) (
+
+Step-by-step:
+pos 1: ( → stack: [(]
+pos 2: [ → stack: [(, []
+pos 3: { → stack: [(, [, {]
+pos 4: _ → top of stack is { → must close with } → answer is B
+
+{"answer": "B"}
 """
 
 _DYCK_OPENERS = ["(", "[", "{"]
@@ -730,7 +858,12 @@ Task:
 
 Rules:
 - Apply every step in order. Do NOT skip any.
-- Use integer arithmetic throughout.
+- Use integer arithmetic throughout. All values are integers.
+- Each step may reference ANY previously computed variable — not just
+  variables from the immediately preceding layer. A step in layer 6
+  may use a variable computed in layer 1 or layer 0 (input).
+- Keep a running record of ALL variable values at all times.
+  You may need to look up values from much earlier layers.
 - After all steps, report the value of the queried variable.
 
 Output requirements:
@@ -740,6 +873,42 @@ Format:
 {
   "answer": "A | B | C | D"
 }
+"""
+_DAG_ONE_SHOT_EXAMPLE = """
+Example:
+
+DAG arithmetic computation (2 variables wide, 2 layers deep)
+
+Input variables:
+  a = 3
+  b = 7
+
+Computation steps:
+
+  Layer 1:
+  Step   1: v1_0 = a + b
+  Step   2: v1_1 = b - 2
+
+  Layer 2:
+  Step   3: v2_0 = v1_0 + v1_1
+  Step   4: v2_1 = a + v1_0
+
+What is the value of v2_1 after all computations?
+
+### Options
+A) 10
+B) 13
+C) 15
+D) 7
+
+Step-by-step:
+a=3, b=7
+v1_0 = 3 + 7 = 10
+v1_1 = 7 - 2 = 5
+v2_0 = 10 + 5 = 15
+v2_1 = 3 + 10 = 13 → answer is B
+
+{"answer": "B"}
 """
 
 _DAG_OPS = ["+", "-"]
@@ -883,44 +1052,41 @@ _REGISTRY: dict[str, TaskTemplate] = {
         name="collisions",
         system_prompt=_COLLISIONS_SYSTEM_PROMPT,
         _generator=_collisions_generator,
+        _one_shot_example=_COLLISIONS_ONE_SHOT_EXAMPLE,
     ),
     "astro": TaskTemplate(
         name="astro",
         system_prompt=_ASTRO_SYSTEM_PROMPT,
         _generator=_astro_generator,
+        _one_shot_example=_ASTRO_ONE_SHOT_EXAMPLE,
     ),
     "olmo_original": TaskTemplate(
         name="olmo_original",
         system_prompt=_SBR_SYSTEM_PROMPT,
         _generator=_sbr_generator,
+        _one_shot_example=_SBR_ONE_SHOT_EXAMPLE,
     ),
     "dyck": TaskTemplate(
-    name="dyck",
-    system_prompt=_DYCK_SYSTEM_PROMPT,
-    _generator=_dyck_generator,
+        name="dyck",
+        system_prompt=_DYCK_SYSTEM_PROMPT,
+        _generator=_dyck_generator,
+        _one_shot_example=_DYCK_ONE_SHOT_EXAMPLE,
     ),
     "dag_arithmetic": TaskTemplate(
         name="dag_arithmetic",
         system_prompt=_DAG_SYSTEM_PROMPT,
         _generator=_dag_generator,
+        _one_shot_example=_DAG_ONE_SHOT_EXAMPLE,
     ),
 }
 
-
 def get_task(name: str, csv_path: str | None = None) -> TaskTemplate:
-    """
-    Return the TaskTemplate for *name*.
-
-    For the `astro` and `olmo3` tasks, *csv_path* overrides the default
-    exoplanet CSV path (which can also be set via the EXOPLANETS_CSV env var).
-    """
     if name not in _REGISTRY:
         raise KeyError(
             f"Unknown task '{name}'. Available: {sorted(_REGISTRY.keys())}"
         )
     template = _REGISTRY[name]
 
-    # For planet tasks, wrap the generator to inject csv_path
     if name == "astro" and csv_path is not None:
         base_gen = template._generator
         def _gen_with_path(m, n, rng, _gen=base_gen, _path=csv_path):
@@ -929,6 +1095,7 @@ def get_task(name: str, csv_path: str | None = None) -> TaskTemplate:
             name=template.name,
             system_prompt=template.system_prompt,
             _generator=_gen_with_path,
+            _one_shot_example=template._one_shot_example,
         )
 
     return template
