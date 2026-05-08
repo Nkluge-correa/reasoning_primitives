@@ -154,19 +154,8 @@ python generator.py \
 >   references a non-adjacent layer. Higher = more long-range dependencies = harder.
 >   Range: `0.0` (always previous layer, easiest) to `1.0` (always distant, hardest).
 > - `op2` variable probability (default `0.5`): controls how often the second operand is
->   a variable vs a small constant (1–5). Higher = more variable references = harder.
+>   a variable vs a small constant (1-5). Higher = more variable references = harder.
 >   Range: `0.0` (always constant) to `1.0` (always a variable from any previous layer).
->
-> Example — harder task (more cross-layer dependencies):
-> ```python
-> if layer >= 3 and rng.random() < 0.6:   # op1: 60% distant
-> if rng.random() < 0.7:                  # op2: 70% variable
-> ```
-> Example — easier task (more linear flow):
-> ```python
-> if layer >= 3 and rng.random() < 0.2:   # op1: 20% distant
-> if rng.random() < 0.3:                  # op2: 30% variable
-> ```
 
 **All options:**
 
@@ -181,8 +170,38 @@ python generator.py \
 | `--output` | auto-named | Override the output filename |
 | `--csv-path` | env var / script-relative default | Path to exoplanet CSV (`astro` only) |
 | `--seed` | `42` | Random seed for reproducibility |
+| `--shot` | `zero` | Prompting mode: `zero` for zero-shot, `one` for one-shot |
 
 Output is a single JSON file, e.g. `data/collisions_m4_8_16_n4_8_16_s100.json`.
+
+> **Zero-shot vs one-shot:** By default all datasets are generated zero-shot. Use
+> `--shot one` to include a worked example in the system prompt for each task. The
+> `shot` value is stored in every sample so zero-shot and one-shot eval files can be
+> compared directly. To compare both conditions on the same task:
+> ```bash
+> # Zero-shot (default)
+> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 \
+>     --output ../data/olmo_original_zeroshot.json
+>
+> # One-shot
+> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 \
+>     --shot one --output ../data/olmo_original_oneshot.json
+> ```
+> Run inference and eval on both, then plot together to see the effect of the
+> one-shot example on model performance.
+
+> **Multiple seeds for statistical soundness:** Generate the same task with different
+> `--seed` values, run inference and eval on each, then pass all eval files to
+> `paper_plots.py` together. The plotting script automatically averages across seeds
+> per model and shows a shaded std region around each curve.
+>
+> ```bash
+> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 42  --output ../data/olmo_original_seed42.json
+> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 123 --output ../data/olmo_original_seed123.json
+> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 456 --output ../data/olmo_original_seed456.json
+> # ... run inference and eval on each, then:
+> python paper_plots.py --inputs ../results/olmo_original_*_eval.json --output-dir ../figures/
+> ```
 
 ---
 
@@ -212,9 +231,14 @@ This prints `m`, `n`, and token count for every difficulty level in every matchi
 - For **thinking models**: use `largest_prompt_tokens + 4000` (thinking traces are long)
 - Make sure the total stays within the model's context window (OLMo models: 32k)
 
+> **Note for one-shot datasets:** One-shot prompts are longer than zero-shot due to
+> the worked example in the system prompt. Always re-run `check_token_lengths.py` on
+> one-shot datasets before submitting inference jobs, and adjust `--max-model-len`
+> accordingly.
+
 > **Example:** At `m=2500` the prompt is ~27,580 tokens.
-> Instruct models: `27580 + 256 = 27836` → use `--max-model-len 28000`
-> Thinking models: `27580 + 4000 = 31580` → use `--max-model-len 32000`
+> Instruct models: `27580 + 256 = 27836` -> use `--max-model-len 28000`
+> Thinking models: `27580 + 4000 = 31580` -> use `--max-model-len 32000`
 
 ---
 
@@ -274,11 +298,9 @@ Prints a summary to stdout and writes a JSON file with:
 - overall accuracy and **overall parsed weighted accuracy (PWA)**
 - a per `(m, n)` breakdown with both `accuracy` and `parsed_weighted_accuracy`
 
-> **Parsed weighted accuracy** = `accuracy × (n_scored / n_total)` per `(m, n)` combo.
+> **Parsed weighted accuracy** = `accuracy x (n_scored / n_total)` per `(m, n)` combo.
 > It penalises difficulty levels where the model frequently failed to produce valid JSON,
 > giving a more conservative estimate of true performance.
-
-Add `--no-samples` to omit per-sample detail and keep the output file small.
 
 To run eval on all inference files in a directory at once:
 
@@ -288,6 +310,8 @@ for f in ../results/*.json; do
     python eval.py --input "$f" --output "${f%.json}_eval.json"
 done
 ```
+
+Add `--no-samples` to omit per-sample detail and keep the output file small.
 
 ---
 
@@ -307,7 +331,7 @@ Produces three figures in both `.pdf` and `.png`:
 The task name and model names are automatically detected from the eval JSON files and
 included in the output filenames. When multiple eval files are provided for the same
 model (e.g. from different random seeds), the plots automatically show the mean across
-seeds with a shaded region indicating ±1 standard deviation.
+seeds with a shaded region indicating +/-1 standard deviation.
 
 **All plot options:**
 
@@ -316,12 +340,8 @@ seeds with a shaded region indicating ±1 standard deviation.
 | `--inputs` | required | Paths or globs to eval JSON files |
 | `--output-dir` | `figures/` | Directory to write figures |
 | `--title` | `""` | Optional figure title suffix |
-| `--max-m` | `None` | Cap plots at this `m` value — useful when models have different context limits and you want a fair comparison (e.g. `--max-m 2048` excludes larger difficulties) |
+| `--max-m` | `None` | Cap plots at this `m` value (e.g. `--max-m 2048` excludes larger difficulties) |
 | `--task` | auto-detected | Override the task name in output filenames |
-
-> **Example use case for `--max-m`:** If instruct models were run on data up to `m=2500`
-> but thinking models can only fit up to `m=2048` within their context window, use
-> `--max-m 2048` so all models are compared on the same difficulty levels.
 
 ```bash
 # Compare all models fairly up to m=2048
@@ -331,39 +351,37 @@ python paper_plots.py \
     --max-m 2048
 ```
 
-> **Multiple seeds:** To get statistically more robust results, generate datasets with
-> multiple random seeds, run inference and eval on each, then pass all eval files
-> together. The plotting script automatically averages across seeds and shows ±1 std
-> as a shaded band:
-> ```bash
-> # Generate with 3 seeds
-> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 42
-> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 123
-> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 456
->
-> # After inference and eval on all 3:
-> python paper_plots.py --inputs scores/olmo_original_*_eval.json --output-dir figures/
-> ```
-
 ---
 
 ## End-to-end example
 
 ```bash
-# 1. Generate
+# 1. Generate (zero-shot, default)
 python generator.py --task olmo_original --n-samples 100 --m 4 8 16 32 64
 
-# 2. Check token lengths
+# 1b. Generate one-shot version for comparison
+python generator.py --task olmo_original --n-samples 100 --m 4 8 16 32 64 \
+    --shot one --output ../data/olmo_original_oneshot_s100.json
+
+# 2. Check token lengths (run for both zero-shot and one-shot files)
 python check_token_lengths.py --task olmo_original
 
 # 3. Copy to cluster and run inference
 scp data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json marvin:/path/to/data/
+scp data/olmo_original_oneshot_s100.json marvin:/path/to/data/
 
-# Instruct model
+# Instruct model — zero-shot
 sbatch inference.sh \
     --input  /path/to/data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json \
     --model  allenai/OLMo-3-7B-Instruct \
-    --output /path/to/results/olmo_original_olmo3_instruct.json \
+    --output /path/to/results/olmo_original_olmo3_instruct_zeroshot.json \
+    --max-model-len 28000 --max-tokens 256
+
+# Instruct model — one-shot
+sbatch inference.sh \
+    --input  /path/to/data/olmo_original_oneshot_s100.json \
+    --model  allenai/OLMo-3-7B-Instruct \
+    --output /path/to/results/olmo_original_olmo3_instruct_oneshot.json \
     --max-model-len 28000 --max-tokens 256
 
 # Thinking model
@@ -373,10 +391,12 @@ sbatch inference.sh \
     --output /path/to/results/olmo_original_olmo3_think.json \
     --max-model-len 32000 --max-tokens 4000
 
-# 4. Copy results back and evaluate
+# 4. Copy results back and evaluate all at once
 scp marvin:/path/to/results/*.json results/
-python eval.py --input results/olmo_original_olmo3_instruct.json
-python eval.py --input results/olmo_original_olmo3_think.json
+for f in ../results/*.json; do
+    [[ "$f" == *_eval.json ]] && continue
+    python eval.py --input "$f" --output "${f%.json}_eval.json"
+done
 
 # 5. Plot — cap at m=2048 for fair comparison across all models
 python paper_plots.py \
@@ -385,16 +405,73 @@ python paper_plots.py \
     --max-m 2048
 ```
 
+### Dyck end-to-end example
+
+```bash
+# 1. Generate — cartesian over stack depth x sequence length
+python generator.py \
+    --task dyck \
+    --n-samples 100 \
+    --m 1 2 4 8 16 \
+    --n 8 16 32 64 128 \
+    --mode cartesian
+
+# 2. Check token lengths
+python check_token_lengths.py --task dyck
+
+# 3. Run inference
+sbatch inference.sh \
+    --input  /path/to/data/dyck_m1_2_4_8_16_n8_16_32_64_128_s100.json \
+    --model  allenai/OLMo-3-7B-Instruct \
+    --output /path/to/results/dyck_olmo3_instruct.json \
+    --max-model-len 3000 --max-tokens 256
+
+# 4. Evaluate
+python eval.py --input results/dyck_olmo3_instruct.json
+
+# 5. Plot
+python paper_plots.py --inputs scores/*_eval.json --output-dir figures/
+```
+
+### DAG arithmetic end-to-end example
+
+```bash
+# 1. Generate — cartesian over width x depth
+python generator.py \
+    --task dag_arithmetic \
+    --n-samples 100 \
+    --m 2 4 8 16 \
+    --n 2 4 8 16 \
+    --mode cartesian
+
+# 2. Check token lengths
+python check_token_lengths.py --task dag_arithmetic
+
+# 3. Run inference
+sbatch inference.sh \
+    --input  /path/to/data/dag_arithmetic_m2_4_8_16_n2_4_8_16_s100.json \
+    --model  allenai/OLMo-3-7B-Instruct \
+    --output /path/to/results/dag_arithmetic_olmo3_instruct.json \
+    --max-model-len 26000 --max-tokens 256
+
+# 4. Evaluate
+python eval.py --input results/dag_arithmetic_olmo3_instruct.json
+
+# 5. Plot
+python paper_plots.py --inputs scores/*_eval.json --output-dir figures/
+```
+
+---
 
 ## Adding a new task
 
 All tasks are defined in `templates.py`. To add one:
 
-1. Write a generator function `my_task_generator(m: int, n: int, rng: random.Random) -> dict` that returns a dict with keys `prompt`, `correct_option`, `option_A`–`option_D`, and `metadata`.
-2. Add a system prompt string.
-3. Register it in `_REGISTRY` at the bottom of the file.
+1. Write a generator function `my_task_generator(m: int, n: int, rng: random.Random) -> dict` that returns a dict with keys `prompt`, `correct_option`, `option_A`-`option_D`, and `metadata`.
+2. Add a system prompt string and optionally a one-shot example string.
+3. Register it in `_REGISTRY` at the bottom of the file, passing both strings.
 
-That's it — `generator.py`, `inference.py`, and `eval.py` will all pick it up automatically.
+That's it — `generator.py`, `inference.py`, and `eval.py` will all pick it up automatically. The `--shot one` flag will work for the new task immediately if a one-shot example is provided.
 
 ---
 
