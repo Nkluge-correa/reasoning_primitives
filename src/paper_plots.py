@@ -68,8 +68,15 @@ def collect_series(eval_files, max_m=None):
         data = load_eval_file(path)
         model = data.get("model_name", os.path.splitext(os.path.basename(path))[0])
         short = model.split("/")[-1] if "/" in model else model
-        shot  = data.get("shot", "zero")
-        short = f"{short} ({shot})"      # e.g. "OLMo-3-7B-Instruct (zero)"
+        # shot is stored per-sample, not at top level — read from first sample
+        samples = data.get("scored_samples") or data.get("samples") or []
+        if samples:
+            shot = samples[0].get("shot", "zero")
+        else:
+            # fallback: infer from filename
+            fname = os.path.basename(path)
+            shot = "one" if "oneshot" in fname else "zero"
+        short = f"{short} ({shot})"
         task  = data.get("task", "unknown")
         tasks_found.add(task)
 

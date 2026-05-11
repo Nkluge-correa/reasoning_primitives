@@ -541,8 +541,8 @@ Format:
 _SBR_ONE_SHOT_EXAMPLE = """
 Example:
 
-bits = [0, 1, 0, 1, 0]  # 5 bits
-a, b, c, d, e = 0, 1, 2, 3, 4  # 0 to 4
+bits = [0, 1, 0, 1]  # 4 bits
+a, b, c, d = 2, 0, 3, 1  # 0 to 3
 a, b = b, a
 b, c = c, b
 assert bits[a] == _  # 0 or 1
@@ -554,62 +554,56 @@ C) 2
 D) 3
 
 Step-by-step:
-Initial: a=0, b=1, c=2, d=3, e=4
-After a, b = b, a: a=1, b=0
-After b, c = c, b: b=2, c=0
-Final: a=1 → bits[1] = 1 → answer is B
+Initial: a=2, b=0, c=3, d=1
+After a, b = b, a: a=0, b=2
+After b, c = c, b: b=3, c=2
+Final: a=0 → bits[0] = 0 → answer is A
 
-{"answer": "B"}
+{"answer": "A"}
 """
 
 # Number of pointer variables — fixed at 5 to match the paper.
-_SBR_NUM_VARS = 5
-_SBR_VAR_NAMES = ["a", "b", "c", "d", "e"]
+# _SBR_NUM_VARS = 5
+# _SBR_VAR_NAMES = ["a", "b", "c", "d", "e"]
 
 
+# Replace the entire _sbr_generator function with this:
 def _sbr_generator(m: int, n: int, rng: random.Random) -> dict:
     """
     State-Based Recall task (Merrill et al. 2026, Figure 5).
 
-    m = bit-array size (minimum 5 to hold 5 distinct pointer values).
+    m = bit-array size = number of pointer variables (one per bit).
     n = number of swap lines.
+    Each variable starts holding a distinct random index into the bit array.
     """
-    m = max(5, m)
+    m = max(2, m)
     n = max(1, n)
 
     # --- bit array ---
     bits = [rng.randint(0, 1) for _ in range(m)]
 
-    # --- pointer initialisation: 5 distinct indices in [0, m-1] ---
-    if m < _SBR_NUM_VARS:
-        # fallback: allow repeats when m is tiny (shouldn't happen with min=4)
-        pointers = [rng.randrange(m) for _ in range(_SBR_NUM_VARS)]
-    else:
-        pointers = rng.sample(range(m), _SBR_NUM_VARS)
+    # --- m pointer variables, each initialized to a distinct random index ---
+    var_names = _get_variable_names(m)   # a, b, c, ... up to m variables
+    pointers = rng.sample(range(m), m)   # distinct random indices 0 to m-1
 
     # --- simulate n swap lines ---
-    # Each swap is a simultaneous assignment over two of the 5 variables.
-    state = list(pointers)   # current pointer values
+    state = list(pointers)
     swap_lines = []
     for _ in range(n):
-        for _ in range(1000):   # avoid immediate undo
-            i, j = rng.sample(range(_SBR_NUM_VARS), 2)
+        for _ in range(1000):
+            i, j = rng.sample(range(m), 2)
             if not swap_lines or swap_lines[-1] != (j, i):
                 break
         swap_lines.append((i, j))
         state[i], state[j] = state[j], state[i]
 
     # --- query ---
-    query_idx = rng.randrange(_SBR_NUM_VARS)
-    query_var = _SBR_VAR_NAMES[query_idx]
+    query_idx = rng.randrange(m)
+    query_var = var_names[query_idx]
     final_ptr = state[query_idx]
     correct_bit = bits[final_ptr]
 
     # --- 4-option MC ---
-    # Answer space is {0, 1}.  To fill 4 options without repetition we add
-    # two "distractor" integers that are clearly wrong (2, 3) — this is a
-    # deliberate design choice so the task remains a genuine binary lookup
-    # while keeping the MC format consistent with the rest of the pipeline.
     wrong_options = [1 - correct_bit, 2, 3]
     rng.shuffle(wrong_options)
     option_values = [correct_bit] + wrong_options
@@ -619,17 +613,17 @@ def _sbr_generator(m: int, n: int, rng: random.Random) -> dict:
     options = dict(zip(labels, option_values))
     correct_label = next(lbl for lbl, val in options.items() if val == correct_bit)
 
-    # --- build prompt (code-like, matching paper Figure 5) ---
+    # --- build prompt ---
     bits_str = "[" + ", ".join(str(b) for b in bits) + "]"
     ptr_vals_str = ", ".join(str(p) for p in pointers)
-    var_names_str = ", ".join(_SBR_VAR_NAMES)
+    var_names_str = ", ".join(var_names)
 
     lines = [
         f"bits = {bits_str}  # {m} bits",
         f"{var_names_str} = {ptr_vals_str}  # 0 to {m - 1}",
     ]
     for i, j in swap_lines:
-        vi, vj = _SBR_VAR_NAMES[i], _SBR_VAR_NAMES[j]
+        vi, vj = var_names[i], var_names[j]
         lines.append(f"{vi}, {vj} = {vj}, {vi}")
     lines.append(f"assert bits[{query_var}] == _  # 0 or 1")
     lines.append("")
