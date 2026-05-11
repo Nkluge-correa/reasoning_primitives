@@ -68,6 +68,8 @@ def collect_series(eval_files, max_m=None):
         data = load_eval_file(path)
         model = data.get("model_name", os.path.splitext(os.path.basename(path))[0])
         short = model.split("/")[-1] if "/" in model else model
+        shot  = data.get("shot", "zero")
+        short = f"{short} ({shot})"      # e.g. "OLMo-3-7B-Instruct (zero)"
         task  = data.get("task", "unknown")
         tasks_found.add(task)
 
