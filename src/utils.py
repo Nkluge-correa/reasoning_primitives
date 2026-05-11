@@ -160,7 +160,17 @@ def load_vllm_model(
         gpu_mem = 0.90
 
     print(f"  Loading {model_name} (gpu_mem={gpu_mem}, max_len={max_model_len}) …")
-    model = LLM(
+    # model = LLM(
+    #     model=model_name,
+    #     dtype=dtype,
+    #     tensor_parallel_size=tensor_parallel_size,
+    #     gpu_memory_utilization=gpu_mem,
+    #     max_model_len=max_model_len,
+    #     trust_remote_code=True,
+    #     enforce_eager=True,
+    #     limit_mm_per_prompt={"image": 0, "video": 0},
+    # )
+    kwargs = dict(
         model=model_name,
         dtype=dtype,
         tensor_parallel_size=tensor_parallel_size,
@@ -170,6 +180,10 @@ def load_vllm_model(
         enforce_eager=True,
         limit_mm_per_prompt={"image": 0, "video": 0},
     )
+    if "hybrid" in model_name.lower():
+        kwargs["mamba_ssm_cache_dtype"] = "float32"
+
+    model = LLM(**kwargs)
     return model
 
 
