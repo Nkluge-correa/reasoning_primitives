@@ -1,0 +1,139 @@
+\begin{thebibliography}{18}
+\providecommand{\natexlab}[1]{#1}
+
+\bibitem[{Bakouch et~al.(2025)Bakouch, Allal, Lozhkov, Tazi, Tunstall, Patino,
+  Beeching, Roucher, Reedi, Gallou{\'e}dec et~al.}]{bakouch2025smollm3}
+Elie Bakouch, Loubna~Ben Allal, Anton Lozhkov, Nouamane Tazi, Lewis Tunstall,
+  Carlos~Miguel Patino, Edward Beeching, Aymeric Roucher, Aksel~Joonas Reedi,
+  Quentin Gallou{\'e}dec, and 1 others. 2025.
+\newblock Smollm3: smol, multilingual, long-context reasoner.
+\newblock \emph{Hugging Face Blog}.
+
+\bibitem[{Dao and Gu(2024)}]{dao2024transformers}
+Tri Dao and Albert Gu. 2024.
+\newblock Transformers are ssms: Generalized models and efficient algorithms
+  through structured state space duality.
+\newblock \emph{arXiv preprint arXiv:2405.21060}.
+
+\bibitem[{Fichtl et~al.(2025)Fichtl, Bohn, Kelber, Mosca, and
+  Groh}]{fichtl2025end}
+Alexander~M Fichtl, Jeremias Bohn, Josefin Kelber, Edoardo Mosca, and Georg
+  Groh. 2025.
+\newblock The end of transformers? on challenging attention and the rise of
+  sub-quadratic architectures.
+\newblock \emph{arXiv preprint arXiv:2510.05364}.
+
+\bibitem[{Geiping et~al.(2025)Geiping, McLeish, Jain, Kirchenbauer, Singh,
+  Bartoldson, Kailkhura, Bhatele, and Goldstein}]{geiping2025scaling}
+Jonas Geiping, Sean McLeish, Neel Jain, John Kirchenbauer, Siddharth Singh,
+  Brian~R Bartoldson, Bhavya Kailkhura, Abhinav Bhatele, and Tom Goldstein.
+  2025.
+\newblock Scaling up test-time compute with latent reasoning: A recurrent depth
+  approach.
+\newblock \emph{arXiv preprint arXiv:2502.05171}.
+
+\bibitem[{Kambhampati et~al.(2025)Kambhampati, Stechly, and
+  Valmeekam}]{kambhampati2025reasoning}
+Subbarao Kambhampati, Kaya Stechly, and Karthik Valmeekam. 2025.
+\newblock (how) do reasoning models reason?
+\newblock \emph{Annals of the New York Academy of Sciences}, 1547(1):33--40.
+
+\bibitem[{Kwon et~al.(2023)Kwon, Li, Zhuang, Sheng, Zheng, Yu, Gonzalez, Zhang,
+  and Stoica}]{kwon2023efficient}
+Woosuk Kwon, Zhuohan Li, Siyuan Zhuang, Ying Sheng, Lianmin Zheng, Cody~Hao Yu,
+  Joseph Gonzalez, Hao Zhang, and Ion Stoica. 2023.
+\newblock Efficient memory management for large language model serving with
+  pagedattention.
+\newblock In \emph{Proceedings of the 29th symposium on operating systems
+  principles}, pages 611--626.
+
+\bibitem[{Levy et~al.(2025)Levy, Elyoseph, Ravfogel, and
+  Goldberg}]{levy2025state}
+Mosh Levy, Zohar Elyoseph, Shauli Ravfogel, and Yoav Goldberg. 2025.
+\newblock State over tokens: Characterizing the role of reasoning tokens.
+\newblock \emph{arXiv preprint arXiv:2512.12777}.
+
+\bibitem[{Li et~al.(2024)Li, Li, Tian, Tang, Xu, Chen, Hu, Dong, Li, and
+  Chen}]{li2024survey}
+Haoyang Li, Yiming Li, Anxin Tian, Tianhao Tang, Zhanchao Xu, Xuejia Chen,
+  Nicole Hu, Wei Dong, Qing Li, and Lei Chen. 2024.
+\newblock A survey on large language model acceleration based on kv cache
+  management.
+\newblock \emph{arXiv preprint arXiv:2412.19442}.
+
+\bibitem[{Liu et~al.(2025)Liu, Fu, Ding, Ning, Zhang, Liu, and
+  Zhang}]{liu2025logical}
+Hanmeng Liu, Zhizhang Fu, Mengru Ding, Ruoxi Ning, Chaoli Zhang, Xiaozhang Liu,
+  and Yue Zhang. 2025.
+\newblock Logical reasoning in large language models: A survey.
+\newblock \emph{arXiv preprint arXiv:2502.09100}.
+
+\bibitem[{Merrill et~al.(2026)Merrill, Li, Romero, Svete, Costello, Dasigi,
+  Groeneveld, Heineman, Kuehl, Lambert et~al.}]{merrill2026olmo}
+William Merrill, Yanhong Li, Tyler Romero, Anej Svete, Caia Costello, Pradeep
+  Dasigi, Dirk Groeneveld, David Heineman, Bailey Kuehl, Nathan Lambert, and 1
+  others. 2026.
+\newblock Olmo hybrid: From theory to practice and back.
+\newblock \emph{arXiv preprint arXiv:2604.03444}.
+
+\bibitem[{Motwani et~al.(2026)Motwani, Nichols, London, Li, Pizzati, Blake,
+  Hammoud, McDonald, Naik, Ivanova et~al.}]{motwani2026longcot}
+Sumeet~Ramesh Motwani, Daniel Nichols, Charles London, Peggy Li, Fabio Pizzati,
+  Acer Blake, Hasan Hammoud, Tavish McDonald, Akshat Naik, Alesia Ivanova, and
+  1 others. 2026.
+\newblock Longcot: Benchmarking long-horizon chain-of-thought reasoning.
+\newblock \emph{arXiv preprint arXiv:2604.14140}.
+
+\bibitem[{Wang et~al.(2025)Wang, Yang, Huang, Dong, and Wei}]{wang2025thinking}
+Liang Wang, Nan Yang, Shaohan Huang, Li~Dong, and Furu Wei. 2025.
+\newblock Thinking augmented pre-training.
+\newblock \emph{arXiv preprint arXiv:2509.20186}.
+
+\bibitem[{Wei et~al.(2022)Wei, Wang, Schuurmans, Bosma, Xia, Chi, Le, Zhou
+  et~al.}]{wei2022chain}
+Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed~Chi, Quoc~V
+  Le, Denny Zhou, and 1 others. 2022.
+\newblock Chain-of-thought prompting elicits reasoning in large language
+  models.
+\newblock \emph{Advances in neural information processing systems},
+  35:24824--24837.
+
+\bibitem[{Yang et~al.(2025)Yang, Li, Yang, Zhang, Hui, Zheng, Yu, Gao, Huang,
+  Lv et~al.}]{yang2025qwen3}
+An~Yang, Anfeng Li, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo~Zheng, Bowen
+  Yu, Chang Gao, Chengen Huang, Chenxu Lv, and 1 others. 2025.
+\newblock Qwen3 technical report.
+\newblock \emph{arXiv preprint arXiv:2505.09388}.
+
+\bibitem[{Yang et~al.(2024{\natexlab{a}})Yang, Kautz, and
+  Hatamizadeh}]{yang2024gated}
+Songlin Yang, Jan Kautz, and Ali Hatamizadeh. 2024{\natexlab{a}}.
+\newblock Gated delta networks: Improving mamba2 with delta rule.
+\newblock \emph{arXiv preprint arXiv:2412.06464}.
+
+\bibitem[{Yang et~al.(2024{\natexlab{b}})Yang, Wang, Zhang, Shen, and
+  Kim}]{yang2024parallelizing}
+Songlin Yang, Bailin Wang, Yu~Zhang, Yikang Shen, and Yoon Kim.
+  2024{\natexlab{b}}.
+\newblock Parallelizing linear transformers with the delta rule over sequence
+  length.
+\newblock \emph{Advances in neural information processing systems},
+  37:115491--115522.
+
+\bibitem[{Yao et~al.(2023)Yao, Yu, Zhao, Shafran, Griffiths, Cao, and
+  Narasimhan}]{yao2023tree}
+Shunyu Yao, Dian Yu, Jeffrey Zhao, Izhak Shafran, Tom Griffiths, Yuan Cao, and
+  Karthik Narasimhan. 2023.
+\newblock Tree of thoughts: Deliberate problem solving with large language
+  models.
+\newblock \emph{Advances in neural information processing systems},
+  36:11809--11822.
+
+\bibitem[{Zeng et~al.(2026)Zeng, Lv, Hou, Du, Zheng, Chen, Yin, Ge, Huang, Xie
+  et~al.}]{zeng2026glm}
+Aohan Zeng, Xin Lv, Zhenyu Hou, Zhengxiao Du, Qinkai Zheng, Bin Chen, Da~Yin,
+  Chendi Ge, Chenghua Huang, Chengxing Xie, and 1 others. 2026.
+\newblock Glm-5: from vibe coding to agentic engineering.
+\newblock \emph{arXiv preprint arXiv:2602.15763}.
+
+\end{thebibliography}
