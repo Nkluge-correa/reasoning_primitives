@@ -50,12 +50,10 @@ module load CUDA/12.6.0 Python/3.12.3-GCCcore-13.3.0
 # python3 -m venv "$VENV_DIR"
 source "$VENV_DIR/bin/activate"
 
-#  Install dependencies on first run — comment out once installed
+# git clone https://github.com/ultor1996/reasoning_primitives.git
+# Install inference dependencies from pyproject.toml on first run — comment out once installed
 # pip3 install --upgrade pip --no-cache-dir
-# pip3 install torch==2.8.0 --no-cache-dir
-# pip3 install transformers accelerate --no-cache-dir
-# pip3 install vllm --no-cache-dir
-# pip3 install json-repair --no-cache-dir
+# pip3 install -e "$PROJECT_DIR/.[inference]" --no-cache-dir
 
 #############################################
 # Environment Variables

@@ -1,0 +1,64 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "reasoning-primitives"
+version = "0.1.0"
+description = "Code and evaluation pipeline for reasoning primitives in hybrid and non-hybrid LLMs"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "json-repair",
+]
+
+[project.optional-dependencies]
+inference = [
+  "torch",
+  "transformers",
+  "accelerate",
+  "vllm",
+]
+plots = [
+  "matplotlib",
+  "numpy",
+]
+dev = [
+  "pytest",
+]
+full = [
+  "json-repair",
+  "torch",
+  "transformers",
+  "accelerate",
+  "vllm",
+  "matplotlib",
+  "numpy",
+  "pytest",
+]
+
+[project.urls]
+Repository = "https://github.com/ultor1996/reasoning_primitives"
+
+[project.scripts]
+reasoning-generate = "generator:main"
+reasoning-infer = "inference:main"
+reasoning-eval = "eval:main"
+reasoning-plot = "paper_plots:main"
+reasoning-count-tokens = "task_token_counter:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+py-modules = [
+  "eval",
+  "generator",
+  "inference",
+  "paper_plots",
+  "task_token_counter",
+  "templates",
+  "utils",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["src/tests"]
+pythonpath = ["src"]
