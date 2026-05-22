@@ -25,13 +25,10 @@ cluster has no internet access (already exported by inference.sh).
 """
 
 import argparse
-import json
 import os
-import sys
 import time
 
 from utils import (
-    extract_json,
     free_vllm_model,
     load_json,
     load_vllm_model,

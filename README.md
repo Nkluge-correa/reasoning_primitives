@@ -1,409 +1,127 @@
-# State-Based Recall Evaluation Suite
+# Reasoning Primitives in Hybrid and Non-Hybrid LLMs
 
-A pipeline for generating, running, and evaluating LLM benchmarks focused on **state tracking** and **state-based recall** — the reasoning primitives studied in [OLMo Hybrid (Merrill et al., 2026)](https://arxiv.org/abs/2604.03444).
+Code, data-generation utilities, and plotting scripts for our working paper on **reasoning primitives**. The project studies two core primitives, **recall** and **state-tracking**, and their composition as **state-based recall**: retrieving information whose address must first be inferred by tracking a changing state.
 
----
+The current paper framing is close to the *State over Tokens* view of reasoning: reasoning traces are effective because they externalize intermediate computational state into token space, letting the model recondition on partial results across decoding steps. In our case study, reasoning augmentation is the clearest and most consistent driver of performance gains, while any hybrid advantage is conditional and task-dependent rather than general.
+
+## Study at a glance
+
+- **Research question:** when reasoning is decomposed into recall and state-tracking, where do reasoning traces matter most, and when do architectural differences between transformers and hybrids become visible?
+- **Model setup:** matched `OLMo-3-7B` and `OLMo-3-Hybrid-7B` families, each with Instruct and Think variants.
+- **Difficulty axes:** `m` controls retrieval complexity and `n` controls state-maintenance complexity.
+- **Evaluation:** deterministic post-hoc scoring from free-form generation, with both exact accuracy and parsed weighted accuracy (PWA).
 
 ## Tasks
 
-| Name | Description | `m` | `n` |
-|---|---|---|---|
-| `collisions` | Track particle velocities through elastic collisions | number of particles | number of collision steps |
-| `astro` | Track variable→planet mappings through swap operations over an exoplanet table | number of table rows | number of swaps |
-| `olmo_original` | State-based recall from the OLMo Hybrid paper: track 5 pointer variables through swaps, then index into a bit array | bit-array size | number of swap lines |
-| `dyck` | Track a bracket stack through a Dyck expression and identify the correct closing token at a masked position | stack depth at query position | sequence length |
-| `dag_arithmetic` | Trace cascading addition/subtraction computations through a DAG with cross-layer dependencies and report the final value of a queried variable | variables per layer (width) | number of layers (depth) |
+| Name             | Description                                                                                    | `m`                           | `n`                       |
+|------------------|------------------------------------------------------------------------------------------------|-------------------------------|---------------------------|
+| `olmo_original`  | Minimal baseline from Merrill et al. (2026): track pointer swaps, then index into a bit array  | bit-array size                | number of swap lines      |
+| `astro`          | Track variable-to-planet mappings through swaps over a real exoplanet table                    | number of table rows          | number of swaps           |
+| `collisions`     | Track particle velocities through sequential elastic collisions                                | number of particles           | number of collision steps |
+| `dyck`           | Track a bracket stack through a Dyck expression and identify the correct masked closer         | stack depth at query position | sequence length           |
+| `dag_arithmetic` | Trace addition/subtraction over a DAG with cross-layer dependencies and report a queried value | variables per layer (width)   | number of layers (depth)  |
 
-All tasks output **4-option multiple choice (A/B/C/D)**.
-
----
+Most tasks use **4-option multiple choice (A/B/C/D)**; `dyck` uses **3 options (A/B/C)** because there are only three valid closing brackets.
 
 ## Repository structure
 
 ```
+├── manuscript/                  # Working paper, references, and manuscript assets
+├── figures/                     # Publication figures and generated plots
 ├── src/
 │   ├── utils.py                 # Shared helpers (JSON I/O, answer parsing, vLLM loading)
-│   ├── templates.py             # Task definitions — all prompts and generators live here
-│   ├── generator.py             # Generate evaluation datasets (no GPU needed)
+│   ├── templates.py             # Task definitions, prompts, and generators
+│   ├── generator.py             # Generate benchmark datasets (no GPU needed)
 │   ├── inference.py             # Run a model over a dataset (requires GPU + vLLM)
-│   ├── inference.sh             # SLURM job script for HPC clusters
-│   ├── eval.py                  # Compute accuracy from inference output
-│   ├── paper_plots.py           # Generate publication figures
-│   └── check_token_lengths.py   # Check prompt token lengths across difficulty levels
+│   ├── inference.sh             # SLURM job script for inference
+│   ├── eval.py                  # Compute accuracy and parsed weighted accuracy
+│   ├── paper_plots.py           # Generate manuscript figures from eval outputs
+│   └── task_token_counter.py    # Check prompt token lengths across difficulty levels
 ├── data/                        # Generated datasets (auto-created)
-└── results/                     # Inference and eval outputs
+└── results/                     # Inference and evaluation outputs
 ```
 
----
+Adding a new task in `templates.py` automatically integrates with generation, inference, evaluation, and plotting.
 
 ## Installation
 
-### Requirements
+**Requirements**
 
 - Python 3.10+
-- For **generation and evaluation only** (no GPU needed):
+- Install from the project root using the extras defined in `pyproject.toml`.
+- For **generation and evaluation only** (no GPU needed).
+
+To install the required dependencies, run:
 
 ```bash
-pip install json-repair
+pip install -e .
 ```
 
 - For **inference** (GPU required):
 
 ```bash
-pip install vllm transformers accelerate torch json-repair
+pip install -e ".[inference]"
 ```
 
-### Clone the repo
+- For **plotting**:
 
 ```bash
-git clone <your-repo-url>
-cd <repo-name>
+pip install -e ".[plots]"
 ```
 
-### Exoplanet CSV (for `astro` task only)
-
-The `astro` task requires an exoplanet CSV file placed in the same folder as `templates.py`, or set the path explicitly:
+- For **everything in this repo** (inference, plotting, and tests):
 
 ```bash
-# Option 1 — place the file next to templates.py (default)
-cp exoplanets.csv src/
-
-# Option 2 — environment variable
-export EXOPLANETS_CSV=/path/to/exoplanets.csv
-
-# Option 3 — pass it at generation time
-python generator.py --task astro --csv-path /path/to/exoplanets.csv ...
+pip install -e ".[full]"
 ```
 
-The CSV must contain these columns:
-`Planet`, `Host Star`, `Orbital Period (days)`, `Planet Radius (Earth radii)`, `Planet Mass (Earth masses)`, `Equilibrium Temp (K)`, `Semi-Major Axis (AU)`, `Eccentricity`, `Stellar Temp (K)`, `Stellar Radius (Solar radii)`, `Stellar Mass (Solar masses)`
+## Example workflow
 
----
+The full experimental loop is simple:
 
-## Step 1 — Generate a dataset
+1. Clone the repo and install the extra you need from `pyproject.toml`.
+2. If you are running `astro`, make `exoplanets.csv` available in `src/`, set `EXOPLANETS_CSV`, or pass `--csv-path`.
+3. Generate a dataset locally with `generator.py`, choosing a task plus the `m` and `n` difficulty values you want.
+4. Optionally run `task_token_counter.py` before inference to size `--max-model-len`, especially for one-shot datasets and Think models.
+5. Run inference locally or through `inference.sh` on a cluster.
+6. Score outputs with `eval.py`.
+7. Plot the eval files with `paper_plots.py`.
 
-Run locally (no GPU needed). Output goes to `data/` by default (one level up from `src/`).
-
-Use `--mode` to control how `m` and `n` are combined:
-- `zip` *(default)* — pairs them together: `(4,4)`, `(8,8)`, `(16,16)`
-- `cartesian` — all combinations: `(4,4)`, `(4,8)`, `(8,4)`, `(8,8)`
-
-```bash
-# zip mode (default) — only (4,4),(8,8),(16,16),(32,32)
-python generator.py \
-    --task collisions \
-    --n-samples 100 \
-    --m 4 8 16 32
-
-# cartesian mode — all 16 combinations of m and n
-python generator.py \
-    --task collisions \
-    --n-samples 100 \
-    --m 4 8 16 32 \
-    --n 4 8 16 32 \
-    --mode cartesian
-
-# olmo_original — different m and n ranges in cartesian mode
-python generator.py \
-    --task olmo_original \
-    --n-samples 100 \
-    --m 16 32 64 \
-    --n 4 8 16 \
-    --mode cartesian
-
-# Astro task with explicit CSV path
-python generator.py \
-    --task astro \
-    --n-samples 100 \
-    --m 4 8 16 \
-    --csv-path /path/to/exoplanets.csv
-
-# dyck — cartesian mode recommended to separate stack depth vs sequence length
-python generator.py \
-    --task dyck \
-    --n-samples 100 \
-    --m 1 2 4 8 16 \
-    --n 8 16 32 64 128 \
-    --mode cartesian
-
-# dag_arithmetic — cartesian mode recommended to separate width vs depth
-python generator.py \
-    --task dag_arithmetic \
-    --n-samples 100 \
-    --m 2 4 8 16 \
-    --n 2 4 8 16 \
-    --mode cartesian
-```
-
-> **Note for `dyck`:** `m` is stack depth at the query position and `n` is sequence
-> length. Always keep `n >= 4*m` so the sequence is long enough to reach the target
-> depth — e.g. pair `m=8` with `n=32` or longer. If `n` is too small the generator
-> will silently use `target_depth * 4` as the actual sequence length instead.
-> Cartesian mode is recommended over zip so stack depth and sequence length can be
-> varied independently.
-
-> **Note for `dag_arithmetic`:** `m` is the number of variables per layer (width) and
-> `n` is the number of computation layers (depth). Operations are limited to `+` and `-`.
-> Cartesian mode is recommended because width and depth are independent difficulty axes.
-> With 50% probability, nodes reference variables from non-adjacent earlier layers,
-> meaning a computation in layer 9 may depend on a value from layer 2 — the model must
-> hold many intermediate values in memory simultaneously rather than just the previous layer.
->
-> **Difficulty knobs** (tunable in `_dag_generator` in `templates.py`):
-> - `op1` distant-layer probability (default `0.5`): controls how often the first operand
->   references a non-adjacent layer. Higher = more long-range dependencies = harder.
->   Range: `0.0` (always previous layer, easiest) to `1.0` (always distant, hardest).
-> - `op2` variable probability (default `0.5`): controls how often the second operand is
->   a variable vs a small constant (1-5). Higher = more variable references = harder.
->   Range: `0.0` (always constant) to `1.0` (always a variable from any previous layer).
-
-**All options:**
-
-| Flag | Default | Description |
-|---|---|---|
-| `--task` | required | `collisions`, `astro`, `olmo_original`, `dyck`, or `dag_arithmetic` |
-| `--n-samples` | `100` | Samples per `(m, n)` pair |
-| `--m` | `4 8 16` | Space-separated list of `m` values |
-| `--n` | same as `--m` | Space-separated list of `n` values (defaults to `--m` if omitted) |
-| `--mode` | `zip` | `zip` = pair m and n together, `cartesian` = all combinations |
-| `--output-dir` | `../data/` relative to script | Directory to save the JSON file |
-| `--output` | auto-named | Override the output filename |
-| `--csv-path` | env var / script-relative default | Path to exoplanet CSV (`astro` only) |
-| `--seed` | `42` | Random seed for reproducibility |
-| `--shot` | `zero` | Prompting mode: `zero` for zero-shot, `one` for one-shot |
-
-Output is a single JSON file, e.g. `data/collisions_m4_8_16_n4_8_16_s100.json`.
-
-> **Zero-shot vs one-shot:** By default all datasets are generated zero-shot. Use
-> `--shot one` to include a worked example in the system prompt for each task. The
-> `shot` value is stored in every sample so zero-shot and one-shot eval files can be
-> compared directly. To compare both conditions on the same task:
-> ```bash
-> # Zero-shot (default)
-> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 \
->     --output ../data/olmo_original_zeroshot.json
->
-> # One-shot
-> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 \
->     --shot one --output ../data/olmo_original_oneshot.json
-> ```
-> Run inference and eval on both, then plot together to see the effect of the
-> one-shot example on model performance.
-
-> **Multiple seeds for statistical soundness:** Generate the same task with different
-> `--seed` values, run inference and eval on each, then pass all eval files to
-> `paper_plots.py` together. The plotting script automatically averages across seeds
-> per model and shows a shaded std region around each curve.
->
-> ```bash
-> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 42  --output ../data/olmo_original_seed42.json
-> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 123 --output ../data/olmo_original_seed123.json
-> python generator.py --task olmo_original --n-samples 1000 --m 4 8 16 32 64 --seed 456 --output ../data/olmo_original_seed456.json
-> # ... run inference and eval on each, then:
-> python paper_plots.py --inputs ../results/olmo_original_*_eval.json --output-dir ../figures/
-> ```
-
----
-
-## Step 1b — Check prompt token lengths
-
-Before running inference, use `check_token_lengths.py` to verify that prompt lengths
-at each difficulty level fit within your model's context window:
+A compact end-to-end example:
 
 ```bash
-# Check all files in the default data directory
-python check_token_lengths.py
+# Clone and install
+git clone https://github.com/ultor1996/reasoning_primitives.git
+cd reasoning_primitives
+pip install -e ".[full]"
 
-# Check only olmo_original files
-python check_token_lengths.py --task olmo_original
+# Generate data
+python generator.py --task olmo_original --n-samples 100 --m 4 8 16 32 64
 
-# Use a different model for tokenization
-python check_token_lengths.py --model allenai/OLMo-Hybrid-Instruct-SFT-7B
+# Optional: check prompt lengths before inference
+python task_token_counter.py --task olmo_original
 
-# Use a different data directory
-python check_token_lengths.py --data-dir /path/to/data
-```
-
-This prints `m`, `n`, and token count for every difficulty level in every matching file.
-
-**Setting `--max-model-len` for inference:**
-- For **instruct models**: use `largest_prompt_tokens + 256`
-- For **thinking models**: use `largest_prompt_tokens + 4000` (thinking traces are long)
-- Make sure the total stays within the model's context window (OLMo models: 32k)
-
-> **Note for one-shot datasets:** One-shot prompts are longer than zero-shot due to
-> the worked example in the system prompt. Always re-run `check_token_lengths.py` on
-> one-shot datasets before submitting inference jobs, and adjust `--max-model-len`
-> accordingly.
-
-> **Example:** At `m=2500` the prompt is ~27,580 tokens.
-> Instruct models: `27580 + 256 = 27836` -> use `--max-model-len 28000`
-> Thinking models: `27580 + 4000 = 31580` -> use `--max-model-len 32000`
-
----
-
-## Step 2 — Run inference (HPC / GPU)
-
-### On a local GPU
-
-```bash
+# Run inference
 python inference.py \
-    --input  data/collisions_m4_8_16_n4_8_16_s100.json \
-    --model  allenai/OLMo-3-7B-Think \
-    --output results/collisions_olmo3think.json
-```
+    --input data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json \
+    --model allenai/OLMo-3-7B-Think \
+    --output results/olmo_original_olmo3_think.json
 
-### On a SLURM cluster
-
-```bash
-sbatch inference.sh \
-    --input  /path/to/data/collisions_m4_8_16_n4_8_16_s100.json \
-    --model  allenai/OLMo-3-7B-Think \
-    --output /path/to/results/collisions_olmo3think.json
-```
-
-Before submitting, update this variable at the top of `inference.sh` to match your cluster:
-
-```bash
-HF_CACHE="/path/to/.cache/huggingface"
-```
-
-**All inference options:**
-
-| Flag | Default | Description |
-|---|---|---|
-| `--input` | required | Path to generator output JSON |
-| `--model` | required | HuggingFace model name or local path |
-| `--output` | auto-named | Output JSON path |
-| `--batch-size` | `8` | vLLM generation batch size |
-| `--max-model-len` | `16000` | Max context + generation length |
-| `--max-tokens` | `512` | Max tokens the model generates per sample |
-| `--tensor-parallel` | `1` | Number of GPUs for tensor parallelism |
-
-> **Thinking models** need a larger `--max-tokens` budget to accommodate the reasoning
-> trace before the final JSON answer. Use `--max-tokens 4000` for thinking models vs
-> `--max-tokens 256` for instruct models. If jobs OOM, reduce `--batch-size` to `4` or `2`.
-
----
-
-## Step 3 — Evaluate
-
-```bash
+# Evaluate
 python eval.py \
-    --input  results/collisions_olmo3think.json \
-    --output scores/collisions_olmo3think_eval.json
-```
+    --input results/olmo_original_olmo3_think.json \
+    --output results/olmo_original_olmo3_think_eval.json
 
-Prints a summary to stdout and writes a JSON file with:
-- overall accuracy and **overall parsed weighted accuracy (PWA)**
-- a per `(m, n)` breakdown with both `accuracy` and `parsed_weighted_accuracy`
-
-> **Parsed weighted accuracy** = `accuracy x (n_scored / n_total)` per `(m, n)` combo.
-> It penalises difficulty levels where the model frequently failed to produce valid JSON,
-> giving a more conservative estimate of true performance.
-
-To run eval on all inference files in a directory at once:
-
-```bash
-for f in ../results/*.json; do
-    [[ "$f" == *_eval.json ]] && continue
-    python eval.py --input "$f" --output "${f%.json}_eval.json"
-done
-```
-
-Add `--no-samples` to omit per-sample detail and keep the output file small.
-
----
-
-## Step 4 — Plot results
-
-```bash
+# Plot
 python paper_plots.py \
-    --inputs scores/*_eval.json \
+    --inputs results/olmo_original_olmo3_think_eval.json \
     --output-dir figures/
 ```
 
-Produces three figures in both `.pdf` and `.png`:
-- `accuracy_line_<task>_<models>` — accuracy per model across difficulty levels
-- `pwa_line_<task>_<models>` — parsed weighted accuracy per model across difficulty levels
-- `parse_rate_line_<task>_<models>` — fraction of successfully parsed responses per model across difficulty levels
-
-The task name and model names are automatically detected from the eval JSON files and
-included in the output filenames. When multiple eval files are provided for the same
-model (e.g. from different random seeds), the plots automatically show the mean across
-seeds with a shaded region indicating +/-1 standard deviation.
-
-**All plot options:**
-
-| Flag | Default | Description |
-|---|---|---|
-| `--inputs` | required | Paths or globs to eval JSON files |
-| `--output-dir` | `figures/` | Directory to write figures |
-| `--title` | `""` | Optional figure title suffix |
-| `--max-m` | `None` | Cap plots at this `m` value (e.g. `--max-m 2048` excludes larger difficulties) |
-| `--task` | auto-detected | Override the task name in output filenames |
-
-```bash
-# Compare all models fairly up to m=2048
-python paper_plots.py \
-    --inputs scores/*_eval.json \
-    --output-dir figures/ \
-    --max-m 2048
-```
-
----
-
-## End-to-end example
-
-```bash
-# 1. Generate (zero-shot, default)
-python generator.py --task olmo_original --n-samples 100 --m 4 8 16 32 64
-
-# 1b. Generate one-shot version for comparison
-python generator.py --task olmo_original --n-samples 100 --m 4 8 16 32 64 \
-    --shot one --output ../data/olmo_original_oneshot_s100.json
-
-# 2. Check token lengths (run for both zero-shot and one-shot files)
-python check_token_lengths.py --task olmo_original
-
-# 3. Copy to cluster and run inference
-scp data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json marvin:/path/to/data/
-scp data/olmo_original_oneshot_s100.json marvin:/path/to/data/
-
-# Instruct model — zero-shot
-sbatch inference.sh \
-    --input  /path/to/data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json \
-    --model  allenai/OLMo-3-7B-Instruct \
-    --output /path/to/results/olmo_original_olmo3_instruct_zeroshot.json \
-    --max-model-len 28000 --max-tokens 256
-
-# Instruct model — one-shot
-sbatch inference.sh \
-    --input  /path/to/data/olmo_original_oneshot_s100.json \
-    --model  allenai/OLMo-3-7B-Instruct \
-    --output /path/to/results/olmo_original_olmo3_instruct_oneshot.json \
-    --max-model-len 28000 --max-tokens 256
-
-# Thinking model
-sbatch inference.sh \
-    --input  /path/to/data/olmo_original_m4_8_16_32_64_n4_8_16_32_64_s100.json \
-    --model  allenai/OLMo-3-7B-Think \
-    --output /path/to/results/olmo_original_olmo3_think.json \
-    --max-model-len 32000 --max-tokens 4000
-
-# 4. Copy results back and evaluate all at once
-scp marvin:/path/to/results/*.json results/
-for f in ../results/*.json; do
-    [[ "$f" == *_eval.json ]] && continue
-    python eval.py --input "$f" --output "${f%.json}_eval.json"
-done
-
-# 5. Plot — cap at m=2048 for fair comparison across all models
-python paper_plots.py \
-    --inputs scores/*_eval.json \
-    --output-dir figures/ \
-    --max-m 2048
-```
+Notes:
+- Use `--mode cartesian` in `generator.py` when you want to vary `m` and `n` independently.
+- For Think models, `--max-tokens 4000` is usually more appropriate than the instruct-style default.
+- For cluster runs, update `HF_CACHE` in `src/inference.sh` and submit the same arguments through `sbatch inference.sh ...`.
 
 ## Adding a new task
 
@@ -415,17 +133,19 @@ All tasks are defined in `templates.py`. To add one:
 
 That's it — `generator.py`, `inference.py`, and `eval.py` will all pick it up automatically. The `--shot one` flag will work for the new task immediately if a one-shot example is provided.
 
----
+If you are extending the benchmark for the paper, keep the task design principle fixed: the task should isolate recall, state-tracking, or their composition in a way that exposes how performance changes as `m` and `n` scale.
+
 
 ## Citation
 
-If you use the `olmo_original` task, please cite:
-
 ```bibtex
-@article{merrill2026olmohybrid,
-  title   = {OLMo Hybrid: From Theory to Practice and Back},
-  author  = {Merrill, William and Li, Yanhong and Romero, Tyler and others},
-  journal = {arXiv preprint arXiv:2604.03444},
-  year    = {2026}
+@misc{rawat2026reasoningprimitiveshybridnonhybrid,
+      title={Reasoning Primitives in Hybrid and Non-Hybrid LLMs}, 
+      author={Shivam Rawat and Lucie Flek and Florian Mai and Nicholas Kluge Corrêa},
+      year={2026},
+      eprint={2604.21454},
+      archivePrefix={arXiv},
+      primaryClass={cs.CL},
+      url={https://arxiv.org/abs/2604.21454}, 
 }
 ```

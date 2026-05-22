@@ -43,7 +43,6 @@ from __future__ import annotations
 import csv
 import os
 import random
-import re
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -70,7 +69,7 @@ _CSV_COLUMNS = [
 # csv_path= to get_task().
 _DEFAULT_CSV_PATH = os.environ.get(
     "EXOPLANETS_CSV",
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "exoplanets.csv"),
+    os.path.join(os.path.dirname(os.path.abspath(__file__)), "assets", "exoplanets.csv"),
 )
 
 # Module-level cache so we only read the file once per process

@@ -2,9 +2,9 @@
 
 ## Abstract
 
-Reasoning in large language models is often treated as a monolithic capability, but its observed gains may arise from more basic operations. We study reasoning through two such primitives, recall and state-tracking, and ask whether hybrid architectures that combine attention-based retrieval with recurrent state updates are better suited than attention-only models for tasks that jointly require both. Using matched OLMo3 transformer and hybrid models in instruction-tuned and reasoning-augmented variants, we evaluate these models on a set of controlled tasks involving a mixture of state-tracking and recall primitives — state-based recall. Across tasks, reasoning augmentation provides the largest overall improvement, substantially extending the range of difficulty over which models remain effective. In certain tasks, the hybrid reasoning model remains substantially more robust as sequential dependence increases, whereas the transformer reasoning model degrades sharply beyond a given threshold. These results suggest that reasoning tokens and architectural inductive biases contribute at different levels of the computational process: explicit reasoning can expand a model's effective operating range, but its benefit depends on how well the underlying architecture supports persistent state propagation. Given the small size of this case study, we present these findings as suggestive rather than conclusive.
+Reasoning in large language models is often treated as a monolithic capability, but its observed gains may arise from more basic operations. We study reasoning through two such primitives, recall and state-tracking, and ask whether hybrid architectures that combine attention-based retrieval with recurrent state updates are better suited than softmax-attention-only models for tasks that jointly require both. Using matched OLMo3 transformer and hybrid models in instruction-tuned and reasoning-augmented variants, we evaluate these models on a set of controlled tasks involving a mixture of state-tracking and recall primitives — state-based recall. Across tasks, reasoning augmentation provides the largest overall improvement, substantially extending the range of difficulty over which models remain effective. In certain tasks, the hybrid reasoning model remains substantially more robust as sequential dependence increases, whereas the transformer reasoning model degrades sharply beyond a given threshold. These results suggest that reasoning tokens and architectural inductive biases contribute at different levels of the computational process: explicit reasoning can expand a model's effective operating range, but its benefit depends on how well the underlying architecture supports persistent state propagation. Given the small size of this case study, we present these findings as suggestive rather than conclusive.
 
----
+> [NICHOLAS: This abstract may be outdated relative to the final results. Please revise it to reflect two key findings: (1) reasoning augmentation clearly and consistently improves performance across tasks; and (2) the hybrid advantage is not uniform — it is conditional and task-dependent. The abstract should also incorporate the framing we discussed: these results support the *State over Tokens* interpretation of reasoning, in that state management in these tasks largely happens in token space, making externalised reasoning traces highly effective. The hybrid architecture's additional inductive bias for stateful computation does not reliably translate into accuracy gains beyond what reasoning tokens already provide. Where hybrids do show an advantage, it may be better understood as a reduction in the computational cost of long-range inference rather than an improvement in accuracy or expressivity.]
 
 ## 1. Introduction
 
@@ -14,11 +14,11 @@ Levy et al.'s *State over Tokens* (SoT) framework proposes that reasoning tokens
 
 This reframing also helps explain a familiar empirical puzzle: reasoning traces often look coherent without being faithful descriptions of the underlying computation. Under the SoT view, intermediate text need not be a transparent explanation; it needs only to encode information useful for subsequent computation.
 
+> [NICHOLAS: A natural extension of the SoT framing is to ask whether models could be trained to use highly compressed, non-linguistic token formats optimised for state encoding rather than human readability, and whether this would match or exceed the performance of natural language reasoning traces. There is already evidence that this is feasible (see https://openreview.net/forum?id=894Yo61h1P). This is probably too much of a tangent for the main text given the page limit, but it is a strong candidate for a future work mention, as it probes the SoT hypothesis more directly than anything we do here.]
+
 Once reasoning is framed in these terms, the question of architecture becomes central. Standard softmax-based transformers excel at flexible content-based retrieval but face well-known scaling constraints. Recurrent and state-space architectures offer more favourable asymptotic profiles but sacrifice precise content-addressable retrieval. This tension motivates *hybrid architectures*, which combine attention-based and recurrent mechanisms. Merrill et al. argue that attention and recurrence supply complementary inductive biases: attention supports fine-grained recall over static context, whereas recurrent components support persistent, efficiently updated latent state.
 
 These observations point toward a concrete hypothesis: if reasoning tokens improve performance by externalizing state, then the relevant underlying capabilities are not "reasoning" in the abstract but more basic operations that enable stateful computation. In this work, we focus on two such primitives — **recall** and **state-tracking** — and ask under what conditions architectural differences become visible once reasoning is decomposed into its constituent computational demands.
-
----
 
 ## 2. Recall and State-Tracking as Reasoning Primitives
 
@@ -26,15 +26,31 @@ To make the notion of reasoning operational, we decompose it into two complement
 
 **State-tracking** is the ability to maintain and update structured variables over time under sequential transformations. The critical requirement is not merely the storage of initial values, but the preservation of the evolving relational configuration among variables as successive updates are applied. Recurrent and state-space models are well matched to this regime because they maintain a compact hidden state updated incrementally at each step. Standard attention mechanisms are often less naturally aligned with problems whose difficulty lies in preserving the result of many compositional updates, especially when those updates are long-range, indirect, or involve repeated reassignment.
 
+We can mathematically formalize state-tracking as follows. Let $S_t$ be the state at time $t$, and let $U_t$ be the update function applied at step $t$. The model must compute:
+
+$$S_{t} = U_{t}(S_{t-1})$$
+
+where $S_0$ is the initial state. The challenge is to ensure that $S_t$ accurately reflects the cumulative effect of all updates up to time $t$, especially as $t$ grows large.
+
 **Recall** is the ability to retrieve a specific piece of information from a large context with high precision, often when the relevant signal is sparse relative to the total input. This is the regime in which softmax attention is most naturally interpreted as an associative memory mechanism. Purely recurrent or linear state-space models must compress history into a fixed-dimensional state, which can make fine-grained retrieval progressively harder over long horizons.
+
+We can formalize recall as follows. Let $C$ be the context containing $N$ items, and let $q$ be the query. The model must compute:
+
+$$R = \text{Attention}(q, C)$$
+
+where $R$ is the retrieved information. The challenge is to ensure that $R$ accurately reflects the relevant item(s) in $C$ corresponding to $q$, especially as $N$ grows large and the relevant signal becomes sparser.
 
 The central point is not simply that recall and state-tracking are different. It is that they are *structurally complementary*. When combined, they define a composite capability termed **state-based recall**: the ability to retrieve information whose address is itself determined by a sequence of intermediate state transformations. In such problems, the model must first track a changing computational state and then use that inferred state to access the relevant information. The retrieval step is conditioned on the success of the state-tracking step, making the task irreducible to either primitive in isolation.
 
 This is precisely the regime in which hybrid architectures are hypothesized to matter most. Pure attention lacks an explicit mechanism for stable iterative state evolution. Pure recurrence tends to compress away the fine-grained addressability needed for precise lookup. Hybrid models combine the inductive biases of both.
 
+> [NICHOLAS: If these definitions feel too heavy for the main text given the page limit, they can be moved to the appendix. I added the mathematical formalisations to make the primitives more precise, but plain natural language descriptions would work equally well if we need to save space.]
+
 ---
 
 ## 3. Methods
+
+In this study, we evaluate the performance of matched transformer and hybrid models (available with reasoning and non-reasoning variants) on a suite of five procedurally generated tasks designed to stress state-based recall. Each task is parameterized by two difficulty axes: *m* (retrieval complexity) and *n* (state maintenance complexity). Further details on the models, task design, and evaluation protocol are provided below.
 
 ### 3.1 Models
 
@@ -49,13 +65,27 @@ This model set lets us examine two questions simultaneously: (1) Does explicit r
 
 For all variants, vLLM was used as the inference engine. For the Think variants, temperature 0.0 and a maximum of 6,000 output tokens were used. For the Instruct variants, temperature 0.0 and a maximum of 40 output tokens were used, consistent with the concise direct-answer format these models produce.
 
+> [NICHOLAS: Please add an appendix section describing the compute infrastructure and software stack used for evaluation. You can use the infrastructure appendix from the Tucano paper as a template. Inference hyperparameters (temperature, maximum output tokens) can also be moved to the appendix to keep this section leaner.]
+
 ### 3.2 Task Formulation
 
 All evaluations are framed as free-form generation problems with deterministic post-hoc scoring. Each prompt describes a procedure and the model is required to produce a concise final answer, scored with exact matching.
 
 Difficulty is controlled by two parameters: *m* (retrieval complexity — e.g. array size, number of particles, table rows) and *n* (state maintenance complexity — e.g. number of swaps, collisions, or computation layers). Each (m, n) combination was evaluated on 1,000 instances, with the exception of the Dyck Language task, where 500 instances per difficulty level were used due to computational resource constraints.
 
----
+**Table 1: Task Descriptions and Difficulty Parameters**
+
+| Task Name           | Description                                                                                     | m (Retrieval Complexity) | n (State Maintenance Complexity) |
+|---------------------|-------------------------------------------------------------------------------------------------|--------------------------|----------------------------------|
+| OLMo Original (`olmo_original`)      | Evaluate a bit value after pointer swaps in a synthetic array.                                  | Array length             | Number of simultaneous swaps     |
+| State-based Astro Recall (`astro`) | Identify a planet name from a table after variable swaps based on orbital periods.             | Number of table rows     | Number of simultaneous swaps     |
+| Collision Simulator (`collisions`)   | Determine final velocity of a particle after a sequence of elastic collisions.                 | Number of particles      | Number of collisions             |
+| Dyck Language (`dyck`)              | Identify the correct closing bracket in a sequence with one masked token.                      | Stack depth at query     | Total sequence length            |
+| DAG Arithmetic (`dag_arithmetic`)    | Compute the value of a variable after layered arithmetic operations with long-range dependencies. | Number of variables      | Number of computation layers     |
+
+More details on each task are provided in the Appendix.
+
+> [NICHOLAS: I added this table to give readers a concise overview of all tasks and their difficulty parameters in one place. Detailed task descriptions and example prompts should be moved to the appendix; the main text should contain only brief characterisations. Also, please reorder the tasks so that OLMo Original comes first. It is the most minimal and controlled formulation of state-based recall and is imported from prior work, making it a natural baseline. All other tasks are our own contributions — each a different surface realisation of the same underlying computational challenge, varying in their mix of recall and state-tracking demands. Ordering from simplest to most complex will make the progression clearer to the reader.]
 
 ## 4. Tasks
 
@@ -346,17 +376,23 @@ C) 15
 D) 7
 ```
 
----
+> [NICHOLAS: Given the 4-page limit, the detailed task descriptions and example prompts should be moved to the appendix. The main text should convey only the core idea: that all five tasks require state-based recall but differ in the relative weight they place on recall versus state-tracking, and in surface form. A one- or two-sentence characterisation of each task in the main text, with a pointer to the appendix for full details, should be sufficient.]
 
 ## 5. Results
+
+> [NICHOLAS: Please reorder the results to present OLMo Original first, as it is the task imported from prior work and serves as the baseline formulation of state-based recall. The remaining tasks, all of our own design, should follow. This ordering is consistent with what I requested for the task descriptions and makes the narrative flow from minimal to more complex.]
 
 ### 5.1 Task 1 — State-based Astro Recall
 
 The instruction-tuned models exhibit a consistent and interpretable pattern: OLMo-Hybrid-Instruct-SFT-7B maintains a persistent advantage over OLMo-3-7B-Instruct at low-to-moderate difficulty. As difficulty increases, however, both models degrade sharply, especially when complexity grows jointly along both axes, and performance trends toward chance.
 
-The Think variants change the picture substantially. Both Think models perform markedly better in high-complexity regimes, indicating that explicitly reasoning-oriented training can significantly mitigate the failure mode observed under direct-response prompting. At low difficulty (4,4), both Think models achieve near-perfect accuracy (transformer Think 0.95, hybrid Think 0.97). By (32,32), however, both collapse entirely: transformer Think falls to 0.00 accuracy and hybrid Think to 0.24, barely above chance. The Instruct variants hover between 0.25 and 0.34 across all settings, offering no informative baseline.
+The Think variants change the picture substantially. Both Think models perform markedly better in high-complexity regimes, indicating that explicitly reasoning-oriented training can significantly mitigate the failure mode observed under direct-response prompting. At low difficulty (4,4), both Think models achieve near-perfect accuracy (transformer Think 0.95, hybrid Think 0.97). By (32,32), however, both fail to sustain the computational process long enough to produce a coherent final output, and their accuracy falls to near zero: transformer Think falls to 0.00 accuracy and hybrid Think to 0.24, barely above chance. The Instruct variants hover between 0.25 and 0.34 across all settings, offering no informative baseline.
 
-Task 1 yields two main conclusions. First, reasoning augmentation is the dominant factor: the Think variants substantially outperform their Instruct counterparts at moderate difficulty, while the Instruct variants from both architectures hover near chance throughout, with no consistent architectural signal between them. Second, even reasoning augmentation has a ceiling — at the highest difficulty levels both Think models collapse to near-zero accuracy and the two architectures converge. The astro task therefore does not provide evidence for a hybridization advantage at any difficulty level; rather, it establishes that reasoning traces are necessary for above-chance performance on this task, but not sufficient once joint difficulty along both axes becomes large enough.
+> [NICHOLAS: Please avoid framing this as the models "collapsing to zero". The more precise and informative description is that, beyond a certain difficulty threshold, the models exhaust the allocated inference budget (6,000 output tokens for Think variants) without completing the reasoning process and producing a parseable final answer. This distinction matters: when accuracy falls below chance, it typically means the model produced no valid answer at all within the budget, not merely a wrong one. Please state this explicitly. Whether performance would improve with a larger budget is an open question we cannot answer here — some evaluation runs took nearly seven days — and this should be acknowledged in the limitations.]
+
+Task 1 yields two main conclusions. First, reasoning augmentation is the dominant factor: the Think variants substantially outperform their Instruct counterparts at moderate difficulty, while the Instruct variants from both architectures hover near chance throughout, with no consistent architectural signal between them. Second, even reasoning augmentation has a ceiling — at the highest difficulty levels both Think models fail to sustain the computational process long enough to produce a coherent final output, and the two architectures converge. The astro task therefore does not provide evidence for a hybridization advantage at any difficulty level; rather, it establishes that reasoning traces are necessary for above-chance performance on this task, but not sufficient once joint difficulty along both axes becomes large enough.
+
+> [NICHOLAS: Please remove the per-task conclusion paragraph. Individual task conclusions make the Results section too long and pre-empt the Discussion. A factual description of the observed pattern is sufficient here; interpretation should be consolidated in a combined Discussion and Conclusion section.]
 
 ### 5.2 Task 2 — Collision Simulator
 
@@ -366,13 +402,21 @@ The Think variants tell a sharply different story. At low difficulty, both model
 
 This pattern matters for two reasons. First, it confirms that reasoning tokens are necessary for these models to engage with the task at all. Second, it shows that reasoning tokens are not sufficient once sequential dependence becomes sufficiently deep. The hybrid advantage becomes largest exactly where the transformer fails — precisely the regime in which recurrent components are theoretically expected to help. The near-zero accuracy of OLMo-3-7B-Think at (64,64) suggests more than ordinary error accumulation: it indicates a failure to sustain the computational process long enough to produce a coherent final output. OLMo-Hybrid-Think, by contrast, maintains substantially higher accuracy even at this difficulty level.
 
+> [NICHOLAS: Same note as for Task 1: please use the "failure to produce a parseable answer within the inference budget" framing rather than "collapse", and reserve interpretation for the Discussion. On the presentation side, consider one of two space-saving approaches: (a) arrange all five task plots in a single grid figure and describe the cross-task patterns together, or (b) show one summary plot in the main text (e.g., average accuracy across tasks) and move individual task plots — including parse rates — to the appendix.]
+
 ### 5.3 Task 3 — OLMo Original
 
+> [NICHOLAS: Please move this task to first in the Results section, consistent with the ordering requested in the task descriptions. OLMo Original is the baseline formulation imported from prior work and should anchor the presentation before our own task designs.]
+
 The OLMo Original task is the minimal formulation of state-based recall, and its results are in several respects the most counterintuitive in the study. Under instruction-only prompting, the two Instruct variants diverge in an unexpected direction: the transformer Instruct model consistently outperforms the hybrid Instruct model across all difficulty levels, scoring 0.43–0.53 versus 0.32–0.43. This reversal — where the recurrent architecture performs *worse* on the most controlled state-based recall task — is not predicted by the theoretical framing and stands as an anomaly that warrants further investigation. Neither model is far above the 0.25 random baseline, but the gap is consistent across the full difficulty range from (4,4) to (64,64), and it does not widen or close with difficulty.
+
+> [NICHOLAS: Please do not call this an anomaly or frame it as a failure of expectations. The paper should approach its results with genuine openness. This pattern — the hybrid underperforming on the most theoretically motivated task — is an interesting finding in its own right: it shows that conclusions from the OLMo3 Hybrid paper do not extrapolate straightforwardly to this setting, and that the relationship between architecture and task performance is more nuanced than a simple "hybrid wins" story. That is worth stating directly and without apology.]
 
 The Think variants present a different pattern. At low difficulty (4,4), both achieve near-perfect accuracy (transformer Think 0.91, hybrid Think 0.92), establishing that the task is tractable with explicit reasoning traces. Both then degrade monotonically as difficulty scales, converging toward the random baseline by (64,64): transformer Think falls to 0.19 and hybrid Think to 0.24. The two Think models track each other closely across the entire difficulty range, showing no consistent architectural advantage in either direction. This convergence is notable precisely because OLMo Original is the purest test of state-based recall in the suite — the task that most directly operationalises the theoretical claim about hybrid advantage. That the two Think architectures are indistinguishable here suggests that, at least at this scale and with this level of reasoning augmentation, the hybrid recurrent components do not provide a measurable additional benefit on the minimal formulation of the task.
 
 Task 3 therefore yields a sobering conclusion: the task where hybrid advantage is most theoretically expected produces neither a hybrid advantage nor a hybrid disadvantage at the Think level, and an unexpected hybrid disadvantage at the Instruct level. Reasoning augmentation remains the dominant differentiator between the two model types (Think vs. Instruct) but provides no traction for separating the two architectures.
+
+> [NICHOLAS: Please cut the concluding paragraph and avoid strong evaluative language like "sobering conclusion" — just describe the pattern factually and move on. Interpretation belongs in the Discussion. As with the other tasks, a concise description of the observed result is all that is needed here.]
 
 ### 5.4 Task 4 — Dyck Language
 
@@ -382,7 +426,11 @@ The Think variants diverge sharply from each other in a way not seen on any othe
 
 The Dyck task is the only one in the suite that stresses pure state-tracking without a retrieval component — the model must maintain a bracket stack, not look up a value from a memory. This is precisely the regime where recurrent components are theoretically most advantaged, and the hybrid Think model's sustained accuracy across all difficulty levels is consistent with that prediction. The fact that the Instruct variants from both architectures are indistinguishable near chance suggests that reasoning augmentation is a prerequisite for engaging the task at all — but once that prerequisite is met, architectural design determines how robust performance is as difficulty scales.
 
+> [NICHOLAS: Please add a brief caveat here against overinterpretation. The result is consistent with the theoretical prediction, but it is a single task and we have not controlled for all potentially confounding factors. The appropriate framing is that the result is suggestive, not conclusive.]
+
 Task 4 therefore yields the clearest evidence of a genuine architectural advantage in the study, but specifically for the hybrid Think model on a pure state-tracking task. The advantage is not shared by the hybrid Instruct model, suggesting it depends on an interaction between recurrent state maintenance and the explicit intermediate computation enabled by reasoning traces.
+
+> [NICHOLAS: Please cut the concluding paragraph for this task. A concise description of the key observation is sufficient; point to the appendix for further detail if needed.]
 
 ### 5.5 Task 5 — DAG Arithmetic
 
@@ -394,9 +442,13 @@ This reversal is theoretically informative. DAG arithmetic requires maintaining 
 
 Task 5 therefore suggests that the hybrid advantage is not a general property of computation-heavy tasks, but depends on the specific structure of state dependencies. Tasks with chained sequential updates may favour hybrid recurrence; tasks with flat, multi-hop retrieval over a large growing registry may favour transformer attention. This distinction provides a potentially useful heuristic for predicting where architectural differences will be most visible in future evaluations.
 
+> [NICHOLAS: Same note as for the other tasks: cut the per-task conclusion and keep this subsection to a factual description of the observed patterns. All interpretation should go in the Discussion.]
+
 ---
 
 ## 6. Cross-Task Interpretation
+
+> [NICHOLAS: Please remove this section entirely. The page budget does not allow for a separate cross-task synthesis section. The Results section should present per-task observations concisely, and then the Discussion and Conclusion section should do the work of synthesising across tasks and drawing out the broader implications. Please restructure accordingly.]
 
 Across all five tasks, several consistent patterns emerge:
 
@@ -410,7 +462,17 @@ Across all five tasks, several consistent patterns emerge:
 
 5. **Accuracy degradation is not uniform across tasks, and the point of collapse varies systematically with task structure.** On the Dyck task, the hybrid Think model achieves peak accuracy of 0.79 even at high difficulty settings, suggesting that its recurrent components continue to support correct bracket-stack computation well into the difficult regime. The transformer Think model is more volatile on Dyck, dipping as low as 0.22, but remains above chance. On the astro task, by contrast, both Think models collapse to zero accuracy at (32,32) — a total failure that is not observed on any other task. This contrast suggests that the ceiling imposed by task structure varies considerably: Dyck places heavy demands on state-tracking but appears tractable for reasoning-augmented models across the difficulty range tested, whereas astro's coupling of long-range tabular recall with dynamic pointer tracking constitutes a harder joint demand that neither architecture can sustain beyond moderate difficulty. The OLMo Original task occupies an intermediate position, with both Think models declining toward chance but not fully collapsing. These differences imply that accuracy degradation is better understood at the level of specific primitive demands than as a general property of difficulty scaling.
 
----
+> [NICHOLAS: Please remove this entire section — we do not have space for it, and the key patterns it identifies can be stated more concisely in the Discussion. Also, throughout the paper, please de-emphasise the output formatting comparison between Instruct and Think variants. The fact that a reasoning-augmented model produces less structured JSON than an instruction-tuned model is not a meaningful or interesting finding; these models serve different purposes. Dwelling on this risks distracting from the results that actually matter.]
+
+> [NICHOLAS: The Discussion should be organised around the following core arguments, which I want foregrounded consistently across both Results and Discussion:
+>
+> 1. **Reasoning augmentation is the dominant factor.** The controlled task design lets us cleanly separate the contribution of reasoning traces from that of architectural design. Across tasks, reasoning traces are the primary driver of accuracy gains at low-to-moderate difficulty, consistent with the SoT account: externalising state into token space is a highly effective — if computationally expensive — mechanism for stateful computation.
+>
+> 2. **The hybrid advantage is conditional, not general.** The hybrid architecture provides a measurable accuracy benefit on some tasks at high difficulty, but this does not generalise across all tasks. Architectural inductive biases are task-specific affordances, not universal capabilities.
+>
+> 3. **The failure threshold is task-dependent.** Where and how sharply performance degrades varies with task structure. The limits of reasoning augmentation and architectural design are better understood in terms of specific computational demands than as properties of difficulty in the abstract.
+>
+> 4. **The hybrid advantage may be primarily a matter of inference efficiency.** It is worth raising the possibility that the practical value of hybrid architectures lies not in being more accurate or expressive, but in being more efficient: they may achieve comparable long-range inference with a smaller memory footprint. Externalising state into tokens is effective but expensive; hybrids may reduce that cost without necessarily expanding what is computationally achievable.]
 
 ## 7. Discussion
 
@@ -426,7 +488,7 @@ Taken together, the results suggest that the relative standing of hybrid and tra
 
 A further pattern worth noting is that the hybrid Think model's accuracy on Dyck peaks at 0.79 even at high difficulty, while its transformer counterpart is more volatile. This suggests that the hybrid model's recurrent components may support internal computation that persists even when explicit output structure degrades — an observation with implications for how hybrid models should be evaluated, since standard structured-output scoring may underestimate their computational capacity in the high-difficulty regime where architectural differences are most theoretically interesting.
 
----
+> [NICHOLAS: Please revise the Discussion to focus on the four arguments outlined in my previous comment. Drop the output formatting comparison between Instruct and Think variants — it is not a theoretically interesting result and is likely to distract the reader. The observation about the hybrid Think model's performance on Dyck can stay, but should be framed cautiously: it is consistent with the prediction that recurrent components support stack-based computation, but it is a single task and we should not generalise beyond that.]
 
 ## 8. Limitations
 
@@ -440,7 +502,7 @@ Several limitations should be kept in mind when interpreting these results.
 
 **Zero-shot evaluation only.** All models are evaluated under zero-shot prompting, and none of the models were pretrained or fine-tuned on tasks of the kind evaluated here. This is a deliberate choice insofar as it tests generalisation from general-purpose training rather than task-specific adaptation, but it is also a limitation imposed in part by computational resource constraints that precluded systematic fine-tuning experiments. As a consequence, it is not possible to determine from the present results how much of the observed performance gap — between Think and Instruct variants, or between hybrid and transformer architectures — reflects genuine architectural or training-regime differences, and how much reflects a mismatch between the task format and the models' pretraining distribution. It is plausible that fine-tuning on task-specific examples would substantially reduce or amplify the architectural differences observed here, and that the relative ordering of models could change under a supervised adaptation regime.
 
----
+> [NICHOLAS: Please merge this section with the Future Work section into a single compact "Limitations and Future Work" paragraph. It should briefly acknowledge the main constraints — single model family, single parameter scale, synthetic tasks only, zero-shot evaluation — and point directly to the most important directions for future work that address each. Keep it tight. See the Tucano paper or Shiza's paper for the right level of compression and tone.]
 
 ## 9. Future Work
 
@@ -456,6 +518,7 @@ The present study raises several questions that could not be answered within its
 
 **Richer task designs.** The five tasks here stress recall, state-tracking, and their composition in highly controlled synthetic settings. Extending the evaluation to tasks with more naturalistic structure — such as long-document question answering with explicit intermediate entity tracking, code execution traces, or multi-step mathematical derivations — would test whether the primitives identified here remain predictive outside the synthetic regime.
 
+> [NICHOLAS: Please compress this section heavily so it can be merged with the Limitations section into a single paragraph. In doing so, make sure to include one future direction not currently present: given that our results are broadly consistent with the SoT account, it would be valuable to test whether models that perform reasoning in latent space rather than token space show a different pattern — specifically, whether they can sustain accuracy at higher difficulty without the same budget exhaustion we observe. There are no publicly available latent-space reasoning models directly comparable to the Think variants evaluated here, but this is a natural next step as such models become available.]
 ---
 
 ## 10. Conclusion
@@ -465,3 +528,5 @@ This paper set out to test whether recall and state-tracking, understood as prim
 In that sense, the main contribution of this work is less a definitive empirical ranking than a more precise framing of the question. The study provides initial supporting evidence that reasoning tokens and architectural design may operate at different levels of the computational process: externalized reasoning can extend what a model can do, but the extent of that benefit may itself depend on how well the underlying architecture supports persistent sequential state construction. This interpretation is consistent with the results, but given the narrow empirical base, it should be taken as a hypothesis sharpened by controlled experiments rather than a general conclusion about model architectures at large.
 
 The clearest methodological takeaway is that benchmarks should not be chosen solely for difficulty or realism in the abstract. They should be constructed to expose the interaction between explicit reasoning and internal state management, especially in regimes where both are necessary. Grounding evaluation in measurable primitives such as recall and state-tracking may therefore be a useful path forward — not because it settles the question, but because it makes the question empirically sharper and easier to test on a larger scale.
+
+> [NICHOLAS: Please merge this section into the Discussion to form a single "Discussion and Conclusion" section. In doing so, moderate the language throughout: avoid phrases like "definitive ranking" or "general conclusion", and frame our contribution as a case study that sharpens the question rather than one that settles it. The appropriate register is precise and suggestive, not declarative. Also see my comment on the abstract for guidance on how to frame the broader implications.]
