@@ -21,9 +21,7 @@ The output is a JSON file with:
 """
 
 import argparse
-import json
 import os
-import sys
 
 from utils import extract_json, load_json, normalize_answer, save_json
 

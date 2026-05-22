@@ -489,7 +489,7 @@ class TestWithRealSamples:
 
     def test_astro_small(self):
         csv_path = os.path.join(
-            os.path.dirname(__file__), "..", "exoplanets.csv"
+            os.path.dirname(__file__), "..", "assets", "exoplanets.csv"
         )
         if not os.path.exists(csv_path):
             pytest.skip("exoplanets.csv not found — skipping astro tests")
@@ -497,7 +497,7 @@ class TestWithRealSamples:
 
     def test_astro_medium(self):
         csv_path = os.path.join(
-            os.path.dirname(__file__), "..", "exoplanets.csv"
+            os.path.dirname(__file__), "..", "assets", "exoplanets.csv"
         )
         if not os.path.exists(csv_path):
             pytest.skip("exoplanets.csv not found — skipping astro tests")

@@ -1,11 +1,11 @@
 """
-check_token_lengths.py — print token lengths for all dataset JSON files.
+task_token_counter.py — print token lengths for all dataset JSON files.
 
 Usage
 -----
-python check_token_lengths.py
-python check_token_lengths.py --data-dir /path/to/data
-python check_token_lengths.py --model allenai/OLMo-Hybrid-Instruct-SFT-7B
+python task_token_counter.py
+python task_token_counter.py --data-dir /path/to/data
+python task_token_counter.py --model allenai/OLMo-Hybrid-Instruct-SFT-7B
 """
 
 import argparse
