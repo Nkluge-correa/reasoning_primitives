@@ -1,7 +1,6 @@
 \documentclass{article}
 \PassOptionsToPackage{dvipsnames,table}{xcolor}
 \usepackage[review]{acl}
-\setlength\linenumbersep{10pt}
 \usepackage{adjustbox}
 \usepackage{multirow}
 \usepackage{amsmath,amssymb,amsfonts}
@@ -18,12 +17,15 @@
 \usepackage{tabularx}
 \usepackage{caption}
 \usepackage{subcaption}
-
+\usepackage{booktabs}
+\theoremstyle{definition}
 \newtheorem{example}{Example}
-
 \newtcolorbox{codebox}[1][]{
     enhanced,
+    breakable,
     rounded corners,
+    before skip=10pt,
+    after skip=7pt,
     colback=lightgray!75,
     colframe=BrickRed,
     coltitle=white,
@@ -67,180 +69,280 @@
 \maketitle
 
 \begin{abstract}
-We study reasoning through two primitives---recall and state-tracking---and ask whether hybrid architectures combining attention-based retrieval with recurrent state updates outperform attention-only models on tasks requiring both. Using matched OLMo3 transformer and hybrid models in instruction-tuned and reasoning-augmented variants, we evaluate five controlled task families. Reasoning augmentation provides the largest overall improvement, but its benefit has a ceiling: at high difficulty, the hybrid Think model remains robust on tasks with sequentially chained state updates, while the transformer Think model is more robust on tasks with flat multi-hop retrieval. Parse rate figures reveal a further dimension---the transformer Think model's collapse on the collision task is a generation breakdown, not merely an accuracy failure, while the hybrid Think model on Dyck maintains accuracy even as its parse rate degrades. We present these findings as suggestive rather than conclusive.
+Reasoning in large language models is often treated as a monolithic capability, but its observed gains may arise from more basic operations. We study reasoning through two such primitives which are recall and state-tracking and ask whether hybrid architectures combining attention-based retrieval with recurrent state updates are better suited than attention-only models on tasks that jointly require both. Using matched OLMo3 transformer and hybrid models in instruction-tuned and reasoning-augmented variants, we evaluate five controlled task families stressing state-based recall. Reasoning augmentation clearly and consistently improves performance across all tasks, often by a large margin, aligning with the \textit{State over Tokens} interpretation: because state management largely happens in token space, externalised reasoning traces are highly effective. The hybrid architecture's additional inductive bias for stateful computation does not reliably translate into accuracy gains beyond what reasoning tokens already provide, however where a hybrid advantage does appear, it is conditional and task-dependent. On tasks with strictly sequential chained state updates the hybrid Think model is more robust at high difficulty; on tasks requiring flat multi-hop retrieval the transformer Think model is more robust. Given the small scope of this case study, we present these findings as suggestive rather than conclusive.
 \end{abstract}
 
 \section{Introduction}
 
-Chain-of-Thought reasoning substantially improves LLM performance on complex tasks \cite{wei2022chain}, and this picture has been extended across prompting strategies \cite{yao2023tree}, architectures \cite{geiping2025scaling}, and training regimes \cite{wang2025thinking,yang2025qwen3,bakouch2025smollm3,zeng2026glm}. The harder question is why. Levy et al.~\cite{levy2025state} propose the \textit{State over Tokens} (SoT) framework: because internal activations do not persist across generation steps, intermediate tokens serve as the only durable carrier of state. Reasoning tokens improve performance not by making the model explain itself, but by letting it externalize partial results and transform bounded computations into cumulative ones \cite{kambhampati2025reasoning,liu2025logical}.
+Early work on Chain-of-Thought reasoning established a now-familiar empirical fact: when large language models (LLMs) are induced to generate intermediate steps, they often perform substantially better on complex tasks \cite{wei2022chain}. Subsequent work expanded this picture across prompting strategies \cite{yao2023tree}, architectural settings \cite{geiping2025scaling}, and training regimes \cite{wang2025thinking,yang2025qwen3,bakouch2025smollm3,zeng2026glm}. The harder question is not whether reasoning tokens help, but why they help.
 
-This framing makes architecture central. Transformers excel at content-based retrieval but face well-known scaling constraints \cite{fichtl2025end,li2024survey}; recurrent and state-space architectures improve efficiency but sacrifice precise addressable retrieval \cite{yang2024parallelizing,yang2024gated,dao2024transformers}. Hybrid architectures combine both \cite{merrill2026olmo}. We ask: under what conditions do architectural differences become visible when reasoning is decomposed into its constituent computational demands?
+A broad literature treats reasoning in LLMs as structured inference unfolding through intermediate textual computation \cite{liu2025logical}, but the mechanisms remain contested \cite{kambhampati2025reasoning}. Recent work~\cite{levy2025state} proposes the \textbf{State over Tokens} (SoT) paradigm: autoregressive models are applied iteratively, but internal activations do not persist across generation steps, what persists is only the token prefix. Intermediate tokens therefore serve as the only durable carrier of state across successive forward passes. The gain from reasoning does not arise merely because the model explains itself; it arises because additional tokens let it externalize partial results, recondition on them, and transform a sequence of bounded computations into a cumulative one. This also explains a familiar puzzle: reasoning traces often look coherent without being faithful descriptions of the underlying computation. Under the SoT view, intermediate text needs only to encode information useful for subsequent computation, not to transparently represent the model's internal process. A natural extension of this framing is to ask whether models could be trained to use highly compressed, non-linguistic token formats optimised for state encoding rather than human readability and whether such formats would match or exceed the performance of natural language traces. There is already evidence that this is feasible \cite{song2026reasoning}, though we leave such tests to future work and return to their implications in Section~\ref{sec:discussion}.
 
-\section{Primitives, Tasks, and Methods}
+Once reasoning is framed in these terms, the question of architecture becomes central. Standard softmax-based transformers excel at content-based retrieval but face well-known scaling constraints: full self-attention requires $O(n^2)$ computation and memory, and even with KV caching, sequence length remains a bottleneck as memory grows with stored keys and values \cite{fichtl2025end,li2024survey}. Recurrent and state-space architectures offer more favorable asymptotic profiles but sacrifice precise content-addressable retrieval \cite{yang2024parallelizing,yang2024gated,dao2024transformers}. This tension motivates \textit{hybrid architectures}, which combine both mechanisms \cite{merrill2026olmo}. In their account, attention supports fine-grained recall over static context, whereas recurrent components support persistent, efficiently updated latent state. These are complementary inductive biases rather than competing trade-offs.
+
+These observations point toward a concrete hypothesis: if reasoning tokens improve performance by externalizing state, then the relevant underlying capabilities are not ``reasoning'' in the abstract but more basic operations enabling stateful computation. In this work, we focus on two such primitives \textbf{Recall} and \textbf{State-tracking} and ask under what conditions architectural differences become visible once reasoning is decomposed into its constituent computational demands.
+
+\section{Recall and State-Tracking as Reasoning Primitives}
+\label{sec:reasoning}
+% To make the notion of reasoning operational, we decompose it into two complementary computational primitives following Merrill et al.~\cite{merrill2026olmo}: \textit{recall} and \textit{state-tracking}. This decomposition shifts the analysis away from broad benchmark labels and toward the concrete operations that models must perform when solving multi-step problems.
+
+% \textbf{State-tracking} is the ability to maintain and update structured variables over time under sequential transformations. The critical requirement is not merely the storage of initial values, but the preservation of the evolving relational configuration among variables as successive updates are applied. Formally, letting $S_t$ denote the state at step $t$ and $U_t$ the update function, the model must compute:
+% \begin{equation}
+%     S_t = U_t(S_{t-1})
+% \end{equation}
+% and ensure that $S_t$ accurately reflects the cumulative effect of all updates up to time $t$. Recurrent and state-space models are well matched to this regime because they maintain a compact hidden state updated incrementally at each step; standard attention mechanisms are often less naturally aligned with problems whose difficulty lies in preserving the result of many compositional updates, especially when those updates are long-range or involve repeated reassignment.
+
+% \textbf{Recall} is the ability to retrieve a specific piece of information from a large context with high precision, often when the relevant signal is sparse. Formally, given a context $C$ of $N$ items and a query $q$, the model must compute:
+% \begin{equation}
+%     R = \mathrm{Attention}(q, C)
+% \end{equation}
+% such that $R$ accurately reflects the relevant item in $C$, especially as $N$ grows large. This is the regime in which softmax attention is most naturally interpreted as an associative memory mechanism; purely recurrent or linear state-space models must compress history into a fixed-dimensional state, making fine-grained retrieval progressively harder over long horizons.
+
+% The central point is not simply that these primitives differ, but that they are \textit{structurally complementary}. When combined, they define \textbf{state-based recall}: the ability to retrieve information whose address is itself determined by a sequence of intermediate state transformations. The retrieval step is conditioned on the success of the state-tracking step, making the task irreducible to either primitive in isolation---and precisely the regime where hybrid architectures are hypothesized to matter most: pure attention lacks stable iterative state evolution; pure recurrence compresses away the fine-grained addressability needed for precise lookup. See Appendix~\ref{app:code-examples} for canonical examples.
+To make the notion of reasoning operational, we decompose it into two complementary computational primitives following ~\cite{merrill2026olmo}: \textbf{State-tracking}, maintaining and updating structured variables across sequential transformations, where recurrent models are well matched because they update a compact hidden state incrementally and \textbf{Recall}, retrieving specific information from a large context with high precision, where softmax attention functions as an associative memory mechanism (see Appendix~\ref{app:primitives-formal} for formal definitions). When combined into \textbf{State-based recall}, the retrieval address is itself determined by a sequence of state transformations, making the task irreducible to either primitive alone: pure attention lacks stable iterative state evolution; pure recurrence compresses away the fine-grained addressability needed for precise lookup. See Appendix~\ref{app:code-examples} for canonical examples.
+
+\section{Methods and Tasks}
 \label{sec:methods}
 
-\paragraph{Reasoning primitives.} Following Merrill et al.~\cite{merrill2026olmo}, we decompose reasoning into \textit{state-tracking}---maintaining and updating structured variables across sequential transformations---and \textit{recall}---retrieving specific information from a large context with high precision. When combined into \textbf{state-based recall}, the retrieval address is itself determined by a sequence of state transformations, making the task irreducible to either primitive alone (see Appendix~\ref{app:code-examples} for canonical examples).
+We evaluate matched transformer and hybrid models, with and without reasoning augmentation, on five procedurally generated tasks designed to stress state-based recall. Each task varies along two difficulty axes: $m$ (retrieval complexity) and $n$ (state maintenance complexity).
 
-\paragraph{Models.} We compare OLMo3-7B and OLMo3-Hybrid-7B \cite{merrill2026olmo}, a matched pair sharing the same data, optimization schedule, and training recipe, in both instruction-tuned and reasoning-augmented variants: \texttt{OLMo-3-7B-\{Instruct,Think\}} and \texttt{OLMo-Hybrid-\{Instruct,Think\}-SFT-7B}. Inference used vLLM \cite{kwon2023efficient}; Think variants: temperature 0.0, max 6,000 tokens; Instruct variants: temperature 0.0, max 40 tokens.
 
-\paragraph{Evaluation.} All tasks are free-form generation scored by exact matching. Difficulty is parameterised by $m$ (retrieval complexity) and $n$ (state maintenance complexity), with 1000 instances per $(m,n)$ bin except for the DYCK task which are only 500 instances per $(m,n)$. All tasks require JSON output \texttt{\{"answer": "A|B|C|D"\}}. We report \textit{accuracy} and \textit{parse rate} (fraction of parseable responses) separately, since the two can dissociate: at high difficulty, Think models can fail to produce any structured output---a generation breakdown distinct from an incorrect answer.
+\paragraph{Models.} We compare OLMo3-7B ~\cite{olmo2025olmo3} and OLMo-Hybrid-7B ~\cite{merrill2026olmo}, a matched pair sharing the same data mixture, optimization schedule, and training recipe, a near-ideal architectural ablation (full architecture details in Appendix~\ref{app:model-architecture}). We evaluate both instruction-tuned and reasoning-augmented variants: \texttt{OLMo-3-7B-\{Instruct,Think\}} and \texttt{OLMo-Hybrid-\{Instruct,Think\}-SFT-7B}. This set lets us examine two questions simultaneously: (1) Does explicit reasoning-oriented training improve performance on tasks requiring multi-step state manipulation? (2) Does the effect depend on architectural class? Full inference configuration details are provided in Appendix~\ref{appendix:inference-config}.
 
-\paragraph{Tasks.} We evaluate five procedurally generated families (prompt examples in Appendix~\ref{app:task-examples}). \textbf{State-based Astro Recall} (\textit{astro}): $m$ real exoplanet rows in a Markdown table; variables initialized to orbital period values undergo $n$ simultaneous swaps; the model retrieves the planet name for the queried variable. \textbf{Collision Simulator} (\textit{collisions}): $m$ particles with distinct velocities undergo $n$ sequential elastic collisions (velocity exchange); each collision conditions all subsequent ones, creating compounding sequential dependencies. \textbf{OLMo Original} (\textit{olmo\_original}): minimal state-based recall from \citet{merrill2026olmo}---a bit array of length $m$, $m$ pointer variables, $n$ simultaneous swaps, evaluate \texttt{bits[a]}; replication baseline. \textbf{Dyck Language} (\textit{dyck}): bracket sequence with one masked closer; model maintains a stack to identify the correct token; $m$ = stack depth, $n$ = sequence length; no retrieval component. \textbf{DAG Arithmetic} (\textit{dag}): $m$ input variables, $n$ computation layers introducing new variables via addition/subtraction with arbitrary cross-layer references \cite{motwani2026longcot}; flat multi-hop retrieval over a growing registry.
+\paragraph{Evaluation.} All tasks are free-form generation scored by exact matching. Difficulty is parameterised by $m$ (retrieval complexity) and $n$ (state maintenance complexity), with 1000 instances per $(m,n)$ bin (500 for Dyck). All tasks require JSON output \texttt{\{"answer": "A|B|C|D"\}}. We report \textit{accuracy} and \textit{parse rate} (fraction of parseable responses) separately.
+
+\paragraph{Tasks.} We evaluate five procedurally generated task families, each a different surface realisation of state-based recall varying in their mix of recall and state-tracking demands (Table~\ref{tab:task-descriptions}; full details in Appendix~\ref{app:task-details}). \textbf{OLMo Original}~\cite{merrill2026olmo} is the minimal replication baseline; the remaining four are our own contributions: \textbf{Astro Recall} (pointer-tracking with table lookup), \textbf{Collisions} (chained sequential state updates), \textbf{Dyck} (pure state-tracking, no retrieval), and \textbf{DAG Arithmetic} (flat multi-hop retrieval over a growing registry~\cite{motwani2026longcot}).
+
+\begin{table}[t]
+\centering
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{p{2.0cm}p{2.0cm}p{1.6cm}p{1.6cm}}
+\toprule
+\textbf{Task} & \textbf{Description} & \textbf{\textit{m}} & \textbf{\textit{n}} \\
+\midrule
+OLMo Original & Bit value after pointer swaps in a synthetic array & Array length & \# swaps \\
+Astro Recall  & Planet name after variable swaps on orbital periods & \# table rows & \# swaps \\[4pt]
+Collisions    & Final velocity after elastic collision chain & \# particles & \# collisions \\[4pt]
+Dyck Language & Correct closing bracket in a masked sequence & Stack depth & Sequence length \\[4pt]
+DAG Arithmetic & Variable value after layered arithmetic with long-range dependencies & \# variables & \# layers \\
+\bottomrule
+\end{tabular}
+\caption{Task descriptions and difficulty parameters. $m$ controls retrieval complexity; $n$ controls state maintenance complexity. Tasks are ordered from most minimal (OLMo Original) to most complex. Full details in Appendix~\ref{app:task-details}.}
+\label{tab:task-descriptions}
+\end{table}
+
+% \section{Results}
+% \label{sec:results}
+
+% \subsection{Collision Simulator: Hybrid Advantage}
+
+% Under instruction-only prompting, both architectures hover between 0.27--0.40 across the full difficulty range---neither consistently exceeds chance. Without explicit intermediate reasoning, both architectures fail to engage the task's sequential collision dynamics in any systematic way. The Think variants tell a sharply different story. At low difficulty, both models perform near ceiling. Once difficulty increases beyond $(16,16)$, the two architectures diverge dramatically: \texttt{OLMo-3-7B-Think} falls to 0.49 at $(32,32)$ and collapses to near zero at $(64,64)$, while \texttt{OLMo-Hybrid-Think-SFT-7B} retains 0.94 and 0.75 at the same settings (Figure~\ref{fig:collisions_acc}).
+
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=\columnwidth]{"images/accuracy_line_collisions_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
+% \caption{Collision Simulator accuracy. Hybrid Think retains high accuracy where transformer Think collapses.}
+% \label{fig:collisions_acc}
+% \end{figure}
+
+% The parse rate figure (Figure~\ref{fig:collisions_parse}) sharpens this interpretation. At $(64,64)$, \texttt{OLMo-3-7B-Think} collapses not only in accuracy but in parse rate---it increasingly fails to produce a coherent, parseable output at all. This indicates a failure to sustain the computational process long enough to reach a final answer, not merely accumulated errors. \texttt{OLMo-Hybrid-Think-SFT-7B}, by contrast, continues to generate parseable responses even at the highest difficulty, consistent with the hypothesis that hybrid recurrence stabilizes intermediate state propagation over long sequential chains. The task consists of strictly chained updates where each collision overwrites prior state and conditions the next---precisely the regime where recurrent components are theoretically expected to help.
+
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=\columnwidth]{"images/parse_rate_line_collisions_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
+% \caption{Collision Simulator parse rate. Transformer Think fails to produce parseable outputs at high difficulty; hybrid Think remains stable.}
+% \label{fig:collisions_parse}
+% \end{figure}
+
+% \subsection{DAG Arithmetic: Transformer Advantage}
+
+% DAG arithmetic reveals the opposite pattern. Both Think models achieve perfect accuracy (1.00) from $(2,2)$ through $(8,8)$. Beyond $(16,16)$, the architectures diverge in the direction opposite to collisions: \texttt{OLMo-3-7B-Think} retains 0.56 at $(32,32)$ while \texttt{OLMo-Hybrid-Think-SFT-7B} falls to 0.30 (Figure~\ref{fig:dag_acc}). This reversal is theoretically informative. DAG arithmetic requires maintaining a growing registry of named numerical values and retrieving correct ones across many intervening computation steps---flat and address-based retrieval rather than sequentially chained state updates. This structure appears to favour the transformer's content-addressable attention mechanism over the hybrid's recurrent state updates, particularly as the number of variables and layers grows large.
+
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=\columnwidth]{"images/accuracy_line_dag_arithmetic_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
+% \caption{DAG Arithmetic accuracy. Transformer Think is more robust at high difficulty, reversing the collision pattern.}
+% \label{fig:dag_acc}
+% \end{figure}
+
+% Crucially, parse rates remain high for both models throughout (Figure~\ref{fig:dag_parse}), confirming that the accuracy gap here reflects genuine computational failure rather than a generation breakdown. This contrasts sharply with the collision task, where the transformer Think model's parse rate collapsed alongside its accuracy. The two tasks thus reveal complementary failure modes: architectural and computational on DAG arithmetic, generational on collisions.
+
+% \begin{figure}[t]
+% \centering
+% \includegraphics[width=\columnwidth]{"images/parse_rate_line_dag_arithmetic_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
+% \caption{DAG Arithmetic parse rate. Both Think models remain parseable throughout, confirming that the accuracy gap reflects genuine computational failure rather than generation breakdown.}
+% \label{fig:dag_parse}
+% \end{figure}
+
+% \subsection{Remaining Tasks}
+
+% \textbf{Astro Recall.} Both Think models achieve $\approx$0.95--0.97 at $(4,4)$ but collapse to 0.00/0.24 by $(32,32)$; Instruct variants hover near chance throughout. The joint demand of simultaneous swaps and large-table lookup constitutes a harder joint demand than either primitive in isolation, and neither architecture sustains performance beyond moderate difficulty. The astro task therefore establishes that reasoning traces are necessary for above-chance performance, but not sufficient once joint difficulty along both axes becomes large enough. See Appendix~\ref{app:additional-figures}, Figures~\ref{fig:astro_acc},~\ref{fig:astro_parse}.
+
+% \noindent\textbf{Dyck Language.} \texttt{OLMo-Hybrid-Think-SFT-7B} achieves the highest accuracy scores of any model in the study (peak 0.79 at $(2,128)$, never falling below 0.38 at any tested setting); \texttt{OLMo-3-7B-Think} is substantially more volatile (peak 0.67, dip to 0.22 at $(4,2048)$). Both Instruct variants hover near the 0.33 random baseline. As the only purely state-tracking task in the suite, Dyck provides the clearest evidence for a genuine hybrid architectural advantage---consistent with recurrent components supporting bracket-stack computation. Notably, the hybrid Think model's parse rate degrades at high difficulty while its accuracy remains comparatively high, suggesting its recurrent components support correct internal computation even when output structure fails. See Appendix~\ref{app:additional-figures}, Figures~\ref{fig:dyck_acc},~\ref{fig:dyck_parse}.
+
+% \textbf{OLMo Original.} Both Think models begin near-perfect ($\approx$0.91--0.92) and degrade monotonically in parallel toward chance by $(64,64)$---no consistent architectural advantage at the Think level. At the Instruct level, an unexpected reversal: transformer Instruct consistently outperforms hybrid Instruct (0.43--0.53 vs.\ 0.32--0.43), a pattern not predicted by the theoretical framing and warranting further investigation. See Appendix~\ref{app:additional-figures}, Figures~\ref{fig:olmo_acc},~\ref{fig:olmo_parse}.
 
 \section{Results}
 \label{sec:results}
 
-\subsection{Collision Simulator: Hybrid Advantage}
+\subsection{OLMo Original: Replication Baseline}
 
-Under instruction-only prompting, both architectures hover between 0.27--0.40, near chance. The Think variants diverge sharply beyond $(16,16)$: \texttt{OLMo-3-7B-Think} falls to 0.49 at $(32,32)$ and collapses to near zero at $(64,64)$; \texttt{OLMo-Hybrid-Think-SFT-7B} retains 0.94 and 0.75 at the same settings (Figure~\ref{fig:collisions_acc}). Figure~\ref{fig:collisions_parse} presents a contrasting trend, showing that the parse rate of \texttt{OLMo-Hybrid-Think-SFT-7B} remains consistently below that of \texttt{OLMo-Think-SFT-7B}. However, this suggests that although \texttt{OLMo-Hybrid-Think-SFT-7B} produces fewer successfully parsed outputs overall, the responses that are successfully parsed are more likely to contain the correct answer. In contrast to the transformer-based Think model, whose degradation is reflected in an increasing inability to generate parseable outputs. This behavior is consistent with the hypothesis that hybrid recurrence stabilizes intermediate state propagation over long sequential reasoning chains, thereby preserving solution quality even when output formatting deteriorates.
+Under instruction-only prompting, the transformer Instruct model consistently outperforms the hybrid Instruct model across all difficulty levels (0.43--0.53 vs.\ 0.32--0.43), despite neither being far above the 0.25 random baseline; the gap is consistent from $(4,4)$ to $(64,64)$ and does not widen or close with difficulty. The Think variants present a different pattern: both achieve near-perfect accuracy at $(4,4)$ (transformer Think 0.91, hybrid Think 0.92) and degrade monotonically in parallel toward chance by $(64,64)$, with no consistent architectural advantage in either direction (Figure~\ref{fig:olmo_acc}). The parse rate (Figure~\ref{fig:olmo_parse}) shows that the transformer variants produce more parseable outputs than their hybrid counterparts at both training regimes. At the Think level, however, this formatting advantage does not translate into accuracy differences.
+\subsection{Collision Simulator}
 
+Under instruction-only prompting, both architectures hover between 0.27--0.40, with neither consistently exceeding chance. At low difficulty both Think variants perform near ceiling. Once difficulty increases beyond $(16,16)$ the two architectures diverge: \texttt{OLMo-3-7B-Think} falls to 0.49 at $(32,32)$ and increasingly exhausts its inference budget without producing a parseable final answer at $(64,64)$, while \texttt{OLMo-Hybrid-Think-SFT-7B} retains 0.94 and 0.75 at the same settings (Figure~\ref{fig:collisions_acc}). The parse rate figure (Figure~\ref{fig:collisions_parse}) reveals a pattern similarwith what is observed on \textbf{OLMo Original}: despite its higher accuracy, the hybrid Think model's parse rate falls below the transformer's at high difficulty. Fewer of its outputs are parseable, but a higher proportion of those that are contain the correct answer while opposite is true for transformer Think model.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{"images/accuracy_line_collisions_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{Collision Simulator accuracy. Hybrid Think retains high accuracy where transformer Think collapses.}
+\caption{Collision Simulator accuracy.}
 \label{fig:collisions_acc}
 \end{figure}
 
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{"images/parse_rate_line_collisions_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{Collision Simulator parse rate. Transformer Think and hybrid Think both exhibit declining parse rates, though hybrid Think shows greater difficulty adhering to the required output format.}
+\caption{Collision Simulator parse rate.}
 \label{fig:collisions_parse}
 \end{figure}
 
-\subsection{DAG Arithmetic: Transformer Advantage}
+\subsection{DAG Arithmetic}
 
-Both Think models reach perfect accuracy through $(8,8)$. Beyond $(16,16)$ the pattern reverses: \texttt{OLMo-3-7B-Think} retains 0.56 at $(32,32)$ while \texttt{OLMo-Hybrid-Think-SFT-7B} falls to 0.30 (Figure~\ref{fig:dag_acc}). Crucially, parse rates remain high for both models (Appendix Figure~\ref{fig:dag_parse}), confirming that this gap reflects genuine computational failure rather than a generation breakdown. The flat, multi-hop retrieval structure of DAG arithmetic---where any prior variable may be referenced at any later layer---appears to favour the transformer's content-addressable attention over the hybrid's recurrent state updates.
-
+Under instruction-only prompting, both Instruct variants begin above chance at $(2,2)$ (transformer Instruct 0.57, hybrid Instruct 0.51) and degrade steadily toward the 0.25 random baseline by $(32,32)$, tracking each other closely throughout with no consistent architectural signal between them. The Think variants tell a sharply different story: both achieve perfect accuracy (1.00) from $(2,2)$ through $(8,8)$. Beyond $(16,16)$ the architectures diverge in the opposite direction to collisions: \texttt{OLMo-3-7B-Think} retains 0.56 at $(32,32)$ while \texttt{OLMo-Hybrid-Think-SFT-7B} falls to 0.30 (Figure~\ref{fig:dag_acc}). The parse rate figure (Figure~\ref{fig:dag_parse}) adds an important contrast with the collision task: parse rates decline for both Think models as difficulty increases, but the hybrid Think model parses more reliably than the transformer Think model throughout, confirming that the accuracy gap reflects genuine computational failure rather than budget exhaustion.
 \begin{figure}[t]
 \centering
 \includegraphics[width=\columnwidth]{"images/accuracy_line_dag_arithmetic_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{DAG Arithmetic accuracy. Transformer Think is more robust at high difficulty, reversing the collision pattern.}
+\caption{DAG Arithmetic accuracy.}
 \label{fig:dag_acc}
 \end{figure}
 
-\subsection{Remaining Tasks}
+\begin{figure}[t]
+\centering
+\includegraphics[width=\columnwidth]{"images/parse_rate_line_dag_arithmetic_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
+\caption{DAG Arithmetic parse rate.}
+\label{fig:dag_parse}
+\end{figure}
 
-\textbf{Astro Recall.} Both Think models achieve $\approx$0.95--0.97 at $(4,4)$ but collapse to 0.00/0.24 by $(32,32)$; Instruct variants hover near chance throughout. The joint demand of simultaneous swaps and large-table lookup exceeds what any model sustains beyond moderate difficulty (Appendix Figures~\ref{fig:astro_acc},~\ref{fig:astro_parse}).
+\subsection{Astro Recall}
 
-\textbf{Dyck Language.} \texttt{OLMo-Hybrid-Think-SFT-7B} achieves the highest accuracy in the study (peak 0.79, never below 0.38 at any setting); \texttt{OLMo-3-7B-Think} is substantially more volatile (peak 0.67, dip to 0.22). Both Instruct variants hover near the 0.33 baseline. Notably, the hybrid Think model's parse rate degrades at high difficulty while its accuracy remains comparatively high---suggesting its recurrent components support correct internal computation even when output structure fails (Appendix Figures~\ref{fig:dyck_acc},~\ref{fig:dyck_parse}).
+Under instruction-only prompting, both Instruct variants hover near chance throughout all difficulty levels, maintaining near-perfect parse rates, consistent with the pattern seen on other tasks where Instruct models produce well-formed but computationally uninformative outputs. The Think variants tell a different story: both achieve $\approx$0.95--0.97 at $(4,4)$ but fail to produce parseable answers within budget by $(32,32)$. Even though the accuracy drops for both of them for  transformer Think goes to in contrast to hybrid Think which drops till random baseline. The parse rate figure reveals that this failure is generational: both Think models' parse rates collapse sharply with difficulty, with the hybrid Think model degrading faster, reaching near zero by $(32,32)$, while the transformer Think model sustains a slightly higher parse rate before also collapsing. Whether accuracy would improve with a larger inference budget is an open question that computational constraints precluded us from testing. See Appendix~\ref{app:additional-figures}, Figures~\ref{fig:astro_acc},~\ref{fig:astro_parse}.
 
-\textbf{OLMo Original.} Both Think models begin near-perfect ($\approx$0.91--0.92) and degrade in parallel toward chance---no consistent architectural advantage at the Think level. At the Instruct level, an unexpected reversal: transformer Instruct outperforms hybrid Instruct (0.43--0.53 vs.\ 0.32--0.43) (Appendix Figures~\ref{fig:olmo_acc},~\ref{fig:olmo_parse}).
+\subsection{Dyck Language}
 
+Under instruction-only prompting, both Instruct variants hover between 0.33--0.43 across all $(m,n)$ settings, barely above the 0.33 random baseline, with no consistent difference between them. The Think variants diverge sharply: \texttt{OLMo-Hybrid-Think-SFT-7B} achieves the highest accuracy of any model in the study (peak 0.79 at $(2,128)$, never falling below 0.38 at any tested setting), while \texttt{OLMo-3-7B-Think} is substantially more volatile (peak 0.67, dip to 0.22 at $(4,2048)$). The parse rate figure adds a pattern consistent with what is observed on the collision task: the hybrid Think model's parse rate degrades at high difficulty while its accuracy remains comparatively high, meaning fewer outputs are parseable but a higher proportion of those that are contain the correct answer. See Appendix~\ref{app:additional-figures}, Figures~\ref{fig:dyck_acc},~\ref{fig:dyck_parse}.
 \section{Discussion and Conclusion}
+\label{sec:discussion}
 
-Two patterns are consistent across all five tasks. First, \textbf{reasoning augmentation is the dominant factor}: Think variants substantially outperform Instruct variants at low-to-moderate difficulty, consistent with the SoT account that externalizing state into tokens enables deeper cumulative computation. Second, \textbf{this mechanism has a ceiling}, and what fills the gap depends on task structure.
+Across all five tasks, four consistent patterns emerge that together characterise the relationship between reasoning augmentation, architectural inductive bias, and task structure.
 
-The collision and DAG arithmetic results establish this most precisely. On collisions---strictly chained updates where each step overwrites prior state---the hybrid Think model's recurrent components supplement token-externalized state when reasoning alone fails, and sustain generation where the transformer collapses entirely. On DAG arithmetic---flat multi-hop retrieval over a growing variable registry---the transformer's content-addressable attention proves more robust, and both models maintain high parse rates, confirming genuine computational rather than generation failure. The Dyck parse-rate/accuracy dissociation adds a further nuance: the hybrid model's recurrent components may support correct computation at a level not fully captured by structured-output scoring.
+\textbf{Reasoning augmentation is the dominant factor.} Think variants substantially outperform Instruct variants on all computation-heavy tasks at low-to-moderate difficulty, consistent with the SoT account that externalizing intermediate state into tokens enables deeper cumulative computation. This benefit is largely architecture-agnostic in the moderate regime, both transformer and hybrid Think models benefit roughly equally from explicit reasoning traces, and the hybrid architecture's additional inductive bias for stateful computation does not reliably translate into accuracy gains beyond what reasoning tokens already provide.
 
-These results suggest \textbf{architectural inductive biases are task-specific affordances}: chained sequential updates favour hybrid recurrence; flat multi-hop retrieval favours transformer attention. The clearest methodological takeaway is that benchmarks for architectural evaluation should target regimes where reasoning traces are helpful but insufficient, stressing both chained and flat retrieval structures---and should report parse rate alongside accuracy to distinguish computational failures from generation breakdowns.
+\textbf{The hybrid advantage is conditional and task-dependent, not uniform.} The OLMo Original results are particularly important here: on the task most directly imported from prior work and most theoretically motivated as a test of hybrid advantage, the two Think models are indistinguishable. This shows that conclusions from the OLMo3 Hybrid paper do not extrapolate straightforwardly to this setting. Where a hybrid advantage does appear---on collisions and Dyck---it is tied to specific task computational structures rather than being a general property of the architecture.
 
-\section{Limitations}
+\textbf{Chained sequential updates and flat multi-hop retrieval favour different architectures.} 
+The collision and DAG arithmetic results suggest that architectural differences depend on task structure rather than difficulty alone. On collisions, where updates are strictly sequential, the hybrid Think model remains substantially more robust in both accuracy and parse rate. On DAG arithmetic, the transformer Think model retains higher accuracy, indicating an advantage on flat, content-addressable retrieval over a growing variable registry. Taken together, the results suggest complementary architectural affordances rather than a universal ranking: recurrent components favour chained state maintenance, while transformer attention favours large-scale associative retrieval.
+
+\textbf{Where hybrids show an advantage, it may reflect reduced inference cost rather than improved expressivity.} The Dyck result is suggestive of recurrent components supporting stack-based computation, but remains too narrow for strong conclusions. More broadly, hybrid architectures may derive their practical advantage not from greater expressivity, but from reducing the inference cost of maintaining long-range state internally rather than externalizing it entirely into reasoning tokens. In this view, sustained parse rates under high difficulty reflect more efficient state propagation rather than fundamentally stronger computation.
+
+The main contribution of this work is less a definitive ranking than a more precise framing of the problem. Reasoning tokens may extend effective computation, but their benefit likely depends on how well the underlying architecture supports persistent state construction. Because some runs approached seven days of compute, systematic inference-budget scaling was infeasible here. Given the narrow empirical scope, the findings are suggestive rather than conclusive. Future work should test the SoT hypothesis more directly using compressed, non-linguistic reasoning traces \cite{song2026reasoning} and benchmarks grounded in recall and state-tracking primitives.
+
+\section{Limitations and Future Work}
 \label{sec:limitations}
 
-\textbf{Model family scope.} All experiments use a single matched OLMo3 pair. Whether findings replicate across other hybrid architectures (Mamba, RWKV), other transformer families, or other scales remains open.
-
-\textbf{Single parameter scale.} All models are evaluated at 7B. Relative advantages and difficulty thresholds are likely scale-dependent.
-
-\textbf{Task coverage.} The five families probe recall, state-tracking, and their composition in synthetic settings. Performance here does not license claims about general reasoning ability.
-
-\textbf{Zero-shot only.} It is not possible to determine how much of the observed gap reflects architectural differences versus distributional mismatch. Fine-tuning experiments would allow a cleaner test.
+All experiments use a single matched OLMo3 pair at 7B; whether the observed patterns replicate across other hybrid architectures (Mamba, RWKV), other transformer families, or other parameter scales remains open. Relative advantages and the difficulty thresholds at which reasoning augmentation fails are likely scale-dependent, and testing the same task families at 1B, 13B, and 70B would establish whether the conditional hybrid advantages are specific to OLMo3. The five task families probe recall, state-tracking, and their composition in synthetic settings and do not license claims about general reasoning ability; extending evaluation to more naturalistic settings such as long-document question answering or multi-step mathematical derivations would test whether the primitives identified here remain predictive outside the controlled regime. All models are evaluated under zero-shot prompting, making it impossible to determine how much of the observed gap reflects genuine architectural differences versus distributional mismatch; fine-tuning experiments would allow a cleaner test. Two further directions are worth highlighting: the parse-rate/accuracy dissociation raises the question of whether evaluation methods that probe internal representations directly would change the conclusions; and, given that our results are broadly consistent with the SoT account, it would be valuable to test whether models that perform reasoning in latent space rather than token space can sustain accuracy at higher difficulty without the budget exhaustion we observe, a natural next step as such models become available.
 
 \bibliographystyle{acl_natbib}
 \bibliography{references}
 
-\clearpage
+% \clearpage
 \appendix
-
+ 
 \section{Additional Result Figures}
 \label{app:additional-figures}
-
-\begin{figure}[h]
+ 
+Figures~\ref{fig:astro_acc}--\ref{fig:olmo_parse} show accuracy and parse rate results for the three task families not shown in the main body: State-based Astro Recall, Dyck Language, and OLMo Original.
+ 
+\begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{"images/accuracy_line_astro_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{Astro Recall accuracy. Both Think models collapse by $(32,32)$.}
+\caption{Astro Recall accuracy.}
 \label{fig:astro_acc}
 \end{figure}
-
-\begin{figure}[h]
+ 
+\begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{"images/parse_rate_line_astro_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{Astro Recall parse rate. Degrades alongside accuracy for both Think models.}
+\caption{Astro Recall parse rate.}
 \label{fig:astro_parse}
 \end{figure}
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=\columnwidth]{"images/parse_rate_line_dag_arithmetic_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{DAG Arithmetic parse rate. Both Think models remain parseable throughout; accuracy gap reflects computational failure.}
-\label{fig:dag_parse}
-\end{figure}
-
-\begin{figure}[h]
+ 
+\begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{"images/accuracy_line_dyck_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{Dyck accuracy. Hybrid Think achieves the highest scores in the study; transformer Think is more volatile.}
+\caption{Dyck accuracy.}
 \label{fig:dyck_acc}
 \end{figure}
-
-\begin{figure}[h]
+ 
+\begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{"images/parse_rate_line_dyck_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{Dyck parse rate. Hybrid Think parse rate degrades at high difficulty while accuracy remains high---recurrent computation persists even when output structure fails.}
+\caption{Dyck parse rate.}
 \label{fig:dyck_parse}
 \end{figure}
-
-\begin{figure}[h]
+ 
+\begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{"images/accuracy_line_olmo_original_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{OLMo Original accuracy. Both Think models degrade in parallel; no consistent architectural advantage.}
+\caption{OLMo Original accuracy.}
 \label{fig:olmo_acc}
 \end{figure}
-
-\begin{figure}[h]
+ 
+\begin{figure}[H]
 \centering
 \includegraphics[width=\columnwidth]{"images/parse_rate_line_olmo_original_OLMo-3-7B-Instruct (zero)_OLMo-3-7B-Think (zero)_OLMo-Hybrid-Instruct-SFT-7B (zero)_OLMo-Hybrid-Think-SFT-7B (zero).png"}
-\caption{OLMo Original parse rate. Relatively stable; degradation is computational rather than generational.}
+\caption{OLMo Original parse rate.}
 \label{fig:olmo_parse}
 \end{figure}
-
+ 
 \section{Code Examples for Reasoning Primitives}
 \label{app:code-examples}
-
+ 
+The following examples illustrate the three task types discussed in Section~\ref{sec:methods}: state-tracking, recall, and their composition into state-based recall.
+ 
 \begin{example}
 \label{ex:state-tracking}
-\textbf{Example A.} [State-Tracking]
+\textbf{State-Tracking}  A canonical state-tracking task requires propagating variable bindings across a chain of dependent updates. The variables are initialized with binary values, then updated through a sequence of $n$ dependent swap operations; the final assertion depends on the entire chain of updates. The challenge lies not in retrieving a fixed fact, but in preserving the result of many compositional updates---precisely the regime where recurrent architectures that maintain an incrementally updated hidden state are well matched:
 \begin{codebox}
-{\footnotesize
+
 \begin{verbatim}
 a, b, c, d, e = [0, 1, 0, 0, 1]
 a, c = c, e
 ...
 assert a == _
 \end{verbatim}
-}
+
 \end{codebox}
 \end{example}
-
+ 
 \begin{example}
 \label{ex:recall}
-\textbf{Example B.} [Recall]
+\textbf{Recall}  A canonical recall task requires retrieving a specific item from a large array-like context given a precise index. The variable \texttt{a} holds an index into a long list of bits; the assertion depends solely on retrieving the bit at that position. The challenge is to localize the relevant item without losing fidelity as context length grows---the regime where softmax attention functions as a differentiable associative memory mechanism, and where purely recurrent models that compress history into a fixed-dimensional state face increasing difficulty:
 \begin{codebox}
-{\footnotesize
+
 \begin{verbatim}
 bits = [0, 1, 0, 0, ...]
 a = 42
 assert bits[a] == _
 \end{verbatim}
-}
+
 \end{codebox}
 \end{example}
-
+ 
 \begin{example}
 \label{ex:state-based-recall}
-\textbf{Example C.} [State-Based Recall]
+\textbf{State-Based Recall} A canonical state-based recall task combines both primitives. A long list of bits serves as the memory, and the variables \texttt{a}--\texttt{e} are initialized as indices into that list. After $n$ dependent swap operations, the final assertion depends on both correctly tracking the transformed index (state-tracking) and retrieving the bit at that position (recall). The retrieval step is conditioned on the outcome of the state-tracking step, making the task irreducible to either primitive in isolation. This is the regime where hybrid architectures are hypothesized to matter most: the recurrent components handle the sequential pointer transformations, while the attention mechanism supports the final precise lookup:
 \begin{codebox}
-{\footnotesize
+
 \begin{verbatim}
 bits = [0, 1, 0, 0, ...]
 a, b, c, d, e = 36, 23, 12, 2, 56
@@ -248,60 +350,455 @@ a, c = c, e
 ...
 assert bits[a] == _
 \end{verbatim}
-}
+
 \end{codebox}
 \end{example}
+
+ \section{Task Descriptions}
+\label{app:task-details}
+
+This section provides full descriptions of all five task families summarised in Table~\ref{tab:task-descriptions} of the main text, ordered from simplest to most complex.
+
+\paragraph{OLMo Original (\textit{olmo\_original}).} A synthetic state-based recall task imported directly from ~\cite{merrill2026olmo}. A bit array of length $m$ is generated and $m$ pointer variables are each initialized to a distinct random index. After $n$ simultaneous swap operations, the model must evaluate \texttt{bits[a]}---combining pointer tracking with binary value lookup. This is the most minimal formulation of state-based recall in the suite and serves as the replication baseline.
+
+\paragraph{State-based Astro Recall (\textit{astro}).} Each instance presents the model with a Markdown table of $m$ real exoplanet rows. Named variables are initialised to the orbital period values of those rows, then subjected to $n$ simultaneous swap operations. The model must determine which planet name corresponds to the queried variable after all swaps. This couples state-tracking (pointer propagation through swaps) with recall (lookup in a semantically structured multi-attribute table), and tests whether the state-based recall challenge persists when embedded in a more naturalistic retrieval context.
+
+\paragraph{Collision Simulator (\textit{collisions}).} Each instance places $m$ particles in a one-dimensional system with distinct initial velocities drawn from a large integer pool. A sequence of $n$ pairwise elastic collisions is applied in order; equal-mass particles exchange velocities on contact. Unlike the simultaneous swaps in the astro task, each collision here conditions all subsequent ones, creating a chain of compounding sequential dependencies. This makes the task more adversarial to state maintenance: a single error at step $k$ corrupts all later steps.
+
+\paragraph{Dyck Language (\textit{dyck}).} The model is given a bracket sequence drawn from the pairs \texttt{()}, \texttt{[]}, \texttt{\{\}} with one closing token masked, and must identify the correct closer by maintaining a stack. Difficulty is controlled by $m$ (stack depth at the query position) and $n$ (total sequence length). This is the only task in the suite containing no retrieval component---it stresses pure state-tracking in isolation.
+
+\paragraph{DAG Arithmetic (\textit{dag\_arithmetic}).} Following ~\cite{motwani2026longcot}, $m$ input variables are assigned integer values and $n$ computation layers introduce new variables via addition or subtraction, with later layers able to reference any prior variable. The flat, multi-hop retrieval structure over a growing variable registry places different demands on the model than the sequentially chained updates of the collision task---favouring content-addressable attention over recurrent state compression.
 
 \section{Task Prompt Examples}
 \label{app:task-examples}
 
+For each task we show the zero-shot system prompt followed by a representative
+example prompt.
+
 \subsection{State-based Astro Recall}
-\begin{codebox}
+\begin{codebox}[System Prompt]
 \begin{verbatim}
-| Planet       | Host Star  | Orbital Period (days) | ... |
-| Kepler-423 b | Kepler-423 | 2.684                 | ... |
-| TOI-3894 b   | TOI-3894   | 8.798                 | ... |
+You are a precise reasoning assistant.
+
+You will be given:
+1. A table of exoplanet data with
+planet names and various properties.
+2. Variable assignments mapping 
+variable names to values from a 
+specific column.
+3. One or more swap operations.
+(Python-style simultaneous assignment)
+4. A question asking which planet 
+corresponds to a variable 
+after all swaps.
+
+How to solve:
+- Each variable (a, b, c, ...) starts 
+assigned to a specific value from the
+table and therefore corresponds to a 
+specific planet.
+- Each swap line exchanges the values 
+of two variables simultaneously:
+  x, y = y, x means x gets y's current 
+  value and y gets x's current value.
+- Track which value each variable 
+holds after every swap.
+- At the end, find which planet in the 
+table has the value that the queried
+  variable currently holds.
+- Apply every swap in order. Do NOT 
+skip any.
+
+Output requirements:
+- Return EXACTLY one JSON object.
+- No extra text.
+
+Format:
+{"answer": "A | B | C | D"}
+\end{verbatim}
+\end{codebox}
+\begin{codebox}[Example Prompt]
+\begin{verbatim}
+| Planet   |.| Orbital Period (days)|..
+|----------|.|----------------------|..
+| Kepler-1 |.| 2.684                |..
+| Kepler-2 |.| 8.798                |..
+| Kepler-3 |.| 5.508                |..
+| Kepler-4 |.| 2.644                |..
+
+
+Consider the following Orbital Period 
+(days):
 a, b, c, d = 2.684, 8.798, 5.508, 2.644
-Swaps: a,b=b,a  then  b,c=c,b
-Planet with Orbital Period = a?
-Options: A) TOI-3894 b  B) Kepler-423 b  C) HAT-P-18 b  D) GJ-436 b
+
+Consider the following swapping:
+- a, b = b, a
+- b, c = c, b
+
+The Planet with the Orbital Period 
+(days) = a is:
+
+### Options
+A) Kepler-2
+B) Kepler-1
+C) Kepler-3
+D) Kepler-4
 \end{verbatim}
 \end{codebox}
-
 \subsection{Collision Simulator}
-\begin{codebox}
+\begin{codebox}[System Prompt]
 \begin{verbatim}
-Rule: equal-mass elastic collision = velocity exchange.
-Initial: A=142, B=57, C=831
-1. A collides with B   2. B collides with C
-Velocity of A? A)142  B)57  C)831  D)204
+You are a strict state-tracking engine 
+for collision systems.
+
+Task:
+- You are given particles with initial 
+velocities.
+- You are given a sequence of pairwise 
+collisions.
+
+Core rule (MUST be applied exactly):
+- When two equal-mass particles collide
+, they EXCHANGE velocities.
+- This is equivalent to swapping 
+their velocity values simultaneously.
+- If A collides with B: new_A = old_B,
+ new_B = old_A. Both update at once.
+
+Reasoning requirements:
+- Maintain an explicit mapping:
+ particle -> current velocity.
+- Apply each collision in order.
+- After each collision, update BOTH
+ particles' velocities before moving
+  to the next.
+- Do NOT skip steps.
+- Do NOT infer physics beyond the
+ given rule.
+
+Output requirements:
+- Return EXACTLY one JSON object.
+- No extra text.
+
+Format:
+{"answer": "A | B | C | D"}
 \end{verbatim}
 \end{codebox}
+\begin{codebox}[Example Prompt]
+\begin{verbatim}
+# Physics Collision Task
 
+Consider a one-dimensional system
+ where all particles move along a line.
+
+Key rule:
+- When two equal-mass particles
+ collide elastically, they exchange
+ velocities.
+
+### Initial velocities
+- A = 142
+- B = 57
+- C = 831
+
+### Collisions
+1. A collides with B
+2. B collides with C
+
+### Question
+What is the velocity of particle A
+ after all collisions?
+
+### Options
+A) 142
+B) 57
+C) 831
+D) 204
+\end{verbatim}
+\end{codebox}
 \subsection{OLMo Original}
-\begin{codebox}
+\begin{codebox}[System Prompt]
 \begin{verbatim}
-bits=[0,1,1,0]; a,b,c,d=2,0,3,1
-a,b=b,a; b,c=c,b; assert bits[a]==_
-Options: A)1  B)0  C)2  D)3
+You are a strict code-execution engine.
+
+Task:
+- You are given a bit array and
+ pointer variables (a, b, c, ...).
+- You are given a sequence of
+ simultaneous swap assignments.
+- You must track the pointer values
+ through every swap and then look up
+  the correct bit in the array.
+
+Rules:
+- Each swap line uses Python
+ simultaneous assignment: x, y = y, x
+- Apply every swap in order
+ do not skip any.
+- After all swaps,
+ evaluate bits[<queried variable>].
+
+Output requirements:
+- Return EXACTLY one JSON object,
+ no other text.
+
+Format:
+{"answer": "A | B | C | D"}
 \end{verbatim}
 \end{codebox}
+\begin{codebox}[Example Prompt]
+\begin{verbatim}
+bits = [0, 1, 1, 0]  # 4 bits
+a, b, c, d = 2, 0, 3, 1  # 0 to 3
+a, b = b, a
+b, c = c, b
+assert bits[a] == _  # 0 or 1
 
+### Options
+A) 1
+B) 0
+C) 2
+D) 3
+\end{verbatim}
+\end{codebox}
 \subsection{Dyck Language}
-\begin{codebox}
+\begin{codebox}[System Prompt]
 \begin{verbatim}
-Expression: ( [ { _ ] ) ( )
-Token at position 4? A) )   B) }   C) ]
+You are a strict language validator
+ for Dyck expressions.
+
+Rules:
+- A Dyck expression uses bracket
+ pairs: ( ), [ ], { }
+- Every opening bracket must be closed
+ by its exact matching closer.
+- Brackets must be closed in the
+ correct order (last opened =
+ first closed).
+
+Task:
+- You are given a Dyck expression with
+ one token masked as _.
+- You must determine what token _ must
+ be to keep the expression valid.
+
+How to solve:
+- Read the sequence token by token
+ from left to right.
+- Maintain a stack: push every opener
+ ( [ { onto the stack.
+- When you see a closer ) ] }, pop the
+ top of the stack.
+- The masked token _ must match the
+ opener currently on top of the stack
+  at that position.
+- Do NOT skip any token. Do NOT guess
+ based on surrounding tokens alone.
+
+Output requirements:
+- Return EXACTLY one JSON object,
+ no other text.
+
+Format:
+{"answer": "A | B | C"}
+\end{codebox}
+\begin{codebox}[Example Prompt]
+\begin{verbatim}
+Expression : ( [ { _ ] ) ( )
+
+Bracket pairs: ( )  [ ]  { }
+Every opener must be closed by its
+ matching closer in the correct order.
+
+What token must replace _ at position
+ 4?
+
+### Options
+A) )
+B) }
+C) ]
+\end{verbatim}
+\end{codebox}
+\subsection{DAG Arithmetic}
+\begin{codebox}[System Prompt]
+\begin{verbatim}
+You are a strict arithmetic computation
+ engine.
+
+Task:
+- You are given a set of input
+ variables with integer values.
+- You are given a sequence of
+ computation steps organized in layers.
+- Each step computes a new variable
+ from one or two previous variables
+ using addition or subtraction only.
+- You must trace every computation in
+ order and track all variable values.
+
+Rules:
+- Apply every step in order. Do not
+ skip any.
+- Use integer arithmetic throughout.
+ All values are integers.
+- Each step may reference any
+ previously computed variable 
+ not just variables from the
+ immediately preceding layer.
+- Keep a running record of ALL
+ variable values at all times.
+- After all steps, report the value of
+ the queried variable.
+
+Output requirements:
+- Return EXACTLY one JSON object,
+ no other text.
+
+Format:
+{"answer": "A | B | C | D"}
+\end{verbatim}
+\end{codebox}
+\begin{codebox}[Example Prompt]
+\begin{verbatim}
+DAG arithmetic computation
+ 
+Input variables:
+  a = 3
+  b = 7
+
+Computation steps:
+
+  Layer 1:
+  Step   1: v1_0 = a + b
+  Step   2: v1_1 = b - 2
+
+  Layer 2:
+  Step   3: v2_0 = v1_0 + v1_1
+  Step   4: v2_1 = a + v1_0
+
+What is the value of v2_1 after all
+ computations?
+
+### Options
+A) 10
+B) 13
+C) 15
+D) 7
 \end{verbatim}
 \end{codebox}
 
-\subsection{DAG Arithmetic}
-\begin{codebox}
-\begin{verbatim}
-a=3, b=7
-v1_0=a+b; v1_1=b-2; v2_1=a+v1_0
-Value of v2_1? A)10  B)13  C)15  D)7
-\end{verbatim}
-\end{codebox}
+ \section{Formal Definitions of Reasoning Primitives}
+\label{app:primitives-formal}
+
+This appendix provides formal definitions of the two reasoning primitives introduced in Section~\ref{sec:methods} and motivates why their composition into state-based recall creates a computational challenge that neither primitive can address in isolation.
+
+\paragraph{State-tracking.} State-tracking is the ability to maintain and update structured variables over time under sequential transformations. The critical requirement is not merely the storage of initial values, but the preservation of the evolving relational configuration among variables as successive updates are applied. Formally, letting $S_t$ denote the state at step $t$ and $U_t$ the update function applied at that step, the model must compute:
+\begin{equation}
+    S_t = U_t(S_{t-1})
+    \label{eq:state-tracking}
+\end{equation}
+and ensure that $S_t$ accurately reflects the cumulative effect of all updates up to time $t$. Recurrent and state-space models are well matched to this regime because they maintain a compact hidden state updated incrementally at each step. Standard attention mechanisms are often less naturally aligned with problems whose difficulty lies in preserving the result of many compositional updates, especially when those updates are long-range, indirect, or involve repeated reassignment.
+
+\paragraph{Recall.} Recall is the ability to retrieve a specific piece of information from a large context with high precision, often when the relevant signal is sparse relative to the total input. Formally, given a context $C$ of $N$ items and a query $q$, the model must compute:
+\begin{equation}
+    R = \mathrm{Attention}(q, C)
+    \label{eq:recall}
+\end{equation}
+such that $R$ accurately reflects the relevant item in $C$ corresponding to $q$, especially as $N$ grows large and the relevant signal becomes sparser. This is the regime in which softmax attention is most naturally interpreted as a differentiable associative memory mechanism. Purely recurrent or linear state-space models must compress history into a fixed-dimensional state, making fine-grained retrieval progressively harder over long horizons.
+
+\paragraph{State-based recall.} When the two primitives are composed, the retrieval query is not a fixed external input but is itself the output of a state-tracking process. The model must first compute the final state $S_T$ via Equation~\ref{eq:state-tracking} and then use that state as the query for retrieval via Equation~\ref{eq:recall}:
+\begin{equation}
+    R = \mathrm{Attention}(S_T,\, C)
+    \label{eq:state-based-recall}
+\end{equation}
+This composition makes the task irreducible to either primitive in isolation: an error in state propagation corrupts the retrieval address, and a failure in retrieval produces the wrong answer even given a correct address. Hybrid architectures are hypothesized to matter most in this regime precisely because they combine the inductive biases of both: recurrent components handle the sequential pointer transformations of Equation~\ref{eq:state-tracking}, while the attention mechanism supports the precise lookup of Equation~\ref{eq:recall}.
+
+\section{Infrastructure: Details}
+\label{appendix:infrastructure-software-stack}
+This appendix documents our compute infrastructure, software stack, and inference configuration.
+
+\subsection{HPC Cluster}
+\label{appendix:infrastructure-marvin-cluster}
+All inference runs were carried out on the Marvin cluster, a tier~3 HPC facility hosted at the University of Bonn. Jobs were submitted to the MLGPU partition, using a single node equipped with 8$\times$~NVIDIA A40 GPUs (48\,GB HBM2 each), with intra-node GPU communication via NVLink and inter-node communication via Mellanox InfiniBand NDR at 200\,Gb/s. Persistent storage was provided by a Lustre parallel filesystem with 5.6\,PB total capacity.
+
+\subsection{Software Stack}
+\label{appendix:infrastructure-software-stack-foundry}
+Our codebase integrates the following libraries:
+\begin{itemize}
+    \item \textbf{PyTorch}~\citep{paszke2019pytorch} for distributed training via DDP and FSDP2.
+    \item \textbf{Hugging Face Transformers}~\citep{wolf2019huggingface} for model architectures.
+    \item \textbf{FlashAttention-2}~\citep{dao2023flashattention} for memory-efficient attention.
+    \item \textbf{vLLM}~\citep{kwon2023efficient} for high-throughput inference and LLM-based evaluation.
+\end{itemize}
+
+\subsection{Inference Configuration}
+\label{appendix:inference-config}
+All models were served using vLLM~\citep{kwon2023efficient} with a batch size of 8 and a maximum model context length of 28{,}000 tokens. Generation hyperparameters varied by model variant as shown in Table~\ref{tab:inference-config}.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lcc}
+\toprule
+\textbf{Parameter} & \textbf{Think variants} & \textbf{Instruct variants} \\
+\midrule
+Temperature        & default                 & default                    \\
+Max model len      & 28000                & 28000                        \\
+Max tokens         & 4000                 & 256                        \\
+Batch size         & 8                       & 8                          \\
+\bottomrule
+\end{tabular}
+\caption{Inference generation parameters for Think and Instruct model variants.}
+\label{tab:inference-config}
+\end{table}
+
+
+\section{Model Architecture Details}
+\label{app:model-architecture}
+
+Table~\ref{tab:arch-shared} summarises the architectural properties shared across all four models evaluated in this study, and Table~\ref{tab:arch-diff} highlights the key differences between the transformer and hybrid model families.
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lp{5cm}}
+\toprule
+\textbf{Property} & \textbf{Value} \\
+\midrule
+Parameters          & 7B \\
+Training data       & Dolma 3 \\
+Post-training data  & Dolci \\
+Training tokens     & 6T \\
+License             & Apache 2.0 \\
+Inference framework & vLLM \\
+Post-training stages & SFT $\rightarrow$ DPO $\rightarrow$ RLVR \\
+\bottomrule
+\end{tabular}
+\caption{Architectural and training properties shared across all four models.}
+\label{tab:arch-shared}
+\end{table}
+
+\begin{table}[h]
+\centering
+\small
+\begin{tabular}{lp{3.2cm}p{3.2cm}}
+\toprule
+\textbf{Property} & \textbf{OLMo3 (Transformer)} & \textbf{OLMo3 Hybrid} \\
+\midrule
+Architecture type   & Full transformer & Hybrid (attention + recurrent) \\
+Recurrent layer     & None & Gated DeltaNet (GDN) \\
+Layer pattern       & 32$\times$ attention & 3$\times$ GDN + 1$\times$ attention, repeated \\
+Attention fraction  & 100\% & 25\% \\
+Hidden size ($d_\text{model}$) & 4096 & 3840 \\
+Attention heads     & 32 & 30 \\
+Head dimension      & 128 & 256 (doubled for DeltaNet) \\
+Positional encoding & RoPE & RoPE disabled \\
+Context length      & Standard & Extended long-context \\
+Variants evaluated  & Instruct, Think & Instruct-SFT, Think-SFT \\
+\bottomrule
+\end{tabular}
+\caption{Key architectural differences between the OLMo3 transformer and OLMo3 Hybrid model families. Both families are matched on training data, optimization schedule, and post-training recipe.}
+\label{tab:arch-diff}
+\end{table}
 
 \end{document}

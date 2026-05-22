@@ -1,4 +1,4 @@
-\begin{thebibliography}{18}
+\begin{thebibliography}{23}
 \providecommand{\natexlab}[1]{#1}
 
 \bibitem[{Bakouch et~al.(2025)Bakouch, Allal, Lozhkov, Tazi, Tunstall, Patino,
@@ -8,6 +8,12 @@ Elie Bakouch, Loubna~Ben Allal, Anton Lozhkov, Nouamane Tazi, Lewis Tunstall,
   Quentin Gallou{\'e}dec, and 1 others. 2025.
 \newblock Smollm3: smol, multilingual, long-context reasoner.
 \newblock \emph{Hugging Face Blog}.
+
+\bibitem[{Dao(2023)}]{dao2023flashattention}
+Tri Dao. 2023.
+\newblock Flashattention-2: Faster attention with better parallelism and work
+  partitioning, 2023.
+\newblock \emph{URL https://arxiv. org/abs/2307.08691}, 5(10).
 
 \bibitem[{Dao and Gu(2024)}]{dao2024transformers}
 Tri Dao and Albert Gu. 2024.
@@ -84,6 +90,36 @@ Sumeet~Ramesh Motwani, Daniel Nichols, Charles London, Peggy Li, Fabio Pizzati,
 \newblock Longcot: Benchmarking long-horizon chain-of-thought reasoning.
 \newblock \emph{arXiv preprint arXiv:2604.14140}.
 
+\bibitem[{Olmo et~al.(2025)Olmo, Ettinger, Bertsch, Kuehl, Graham, Heineman,
+  Groeneveld, Brahman, Timbers, Ivison, Morrison, Poznanski, Lo, Soldaini,
+  Jordan, Chen, Noukhovitch, Lambert, Walsh, Dasigi, Berry, Malik, Shah, Geng,
+  Arora, Gupta, Anderson, Xiao, Murray, Romero, Graf, Asai, Bhagia, Wettig,
+  Liu, Rangapur, Anastasiades, Huang, Schwenk, Trivedi, Magnusson, Lochner,
+  Liu, Miranda, Sap, Morgan, Schmitz, Guerquin, Wilson, Huff, Bras, Xin, Shao,
+  Skjonsberg, Shen, Li, Wilde, Pyatkin, Merrill, Chang, Gu, Zeng, Sabharwal,
+  Zettlemoyer, Koh, Farhadi, Smith, and Hajishirzi}]{olmo2025olmo3}
+Team Olmo, Allyson Ettinger, Amanda Bertsch, Bailey Kuehl, David Graham, David
+  Heineman, Dirk Groeneveld, Faeze Brahman, Finbarr Timbers, Hamish Ivison,
+  Jacob Morrison, Jake Poznanski, Kyle Lo, Luca Soldaini, Matt Jordan, Mayee
+  Chen, Michael Noukhovitch, Nathan Lambert, Pete Walsh, and 49 others. 2025.
+\newblock \href {https://arxiv.org/abs/2512.13961} {Olmo 3}.
+\newblock \emph{Preprint}, arXiv:2512.13961.
+
+\bibitem[{Paszke et~al.(2019)Paszke, Gross, Massa, Lerer, Bradbury, Chanan,
+  Killeen, Lin, Gimelshein, Antiga et~al.}]{paszke2019pytorch}
+Adam Paszke, Sam Gross, Francisco Massa, Adam Lerer, James Bradbury, Gregory
+  Chanan, Trevor Killeen, Zeming Lin, Natalia Gimelshein, Luca Antiga, and 1
+  others. 2019.
+\newblock Pytorch: An imperative style, high-performance deep learning library.
+\newblock \emph{Advances in neural information processing systems}, 32.
+
+\bibitem[{Song et~al.(2026)Song, Jo, Kim et~al.}]{song2026reasoning}
+Jiwon Song, Dongwon Jo, Yulhwa Kim, and 1 others. 2026.
+\newblock Reasoning path compression: Compressing generation trajectories for
+  efficient llm reasoning.
+\newblock \emph{Advances in Neural Information Processing Systems},
+  38:139724--139755.
+
 \bibitem[{Wang et~al.(2025)Wang, Yang, Huang, Dong, and Wei}]{wang2025thinking}
 Liang Wang, Nan Yang, Shaohan Huang, Li~Dong, and Furu Wei. 2025.
 \newblock Thinking augmented pre-training.
@@ -97,6 +133,15 @@ Jason Wei, Xuezhi Wang, Dale Schuurmans, Maarten Bosma, Fei Xia, Ed~Chi, Quoc~V
   models.
 \newblock \emph{Advances in neural information processing systems},
   35:24824--24837.
+
+\bibitem[{Wolf et~al.(2019)Wolf, Debut, Sanh, Chaumond, Delangue, Moi, Cistac,
+  Rault, Louf, Funtowicz et~al.}]{wolf2019huggingface}
+Thomas Wolf, Lysandre Debut, Victor Sanh, Julien Chaumond, Clement Delangue,
+  Anthony Moi, Pierric Cistac, Tim Rault, R{\'e}mi Louf, Morgan Funtowicz, and
+  1 others. 2019.
+\newblock Huggingface's transformers: State-of-the-art natural language
+  processing.
+\newblock \emph{arXiv preprint arXiv:1910.03771}.
 
 \bibitem[{Yang et~al.(2025)Yang, Li, Yang, Zhang, Hui, Zheng, Yu, Gao, Huang,
   Lv et~al.}]{yang2025qwen3}
