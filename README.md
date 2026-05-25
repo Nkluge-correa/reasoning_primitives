@@ -1,4 +1,4 @@
-# Reasoning Primitives in Hybrid and Non-Hybrid LLMs
+# Reasoning Primitives in Hybrid and Non-Hybrid LLMs: Do Architectural Differences Yield Advantages in State-Tracking and Recall?
 
 Code, data-generation utilities, and plotting scripts for our working paper on **reasoning primitives**. The project studies two core primitives, **recall** and **state-tracking**, and their composition as **state-based recall**: retrieving information whose address must first be inferred by tracking a changing state.
 
@@ -140,8 +140,8 @@ If you are extending the benchmark for the paper, keep the task design principle
 
 ```bibtex
 @misc{rawat2026reasoningprimitiveshybridnonhybrid,
-      title={Reasoning Primitives in Hybrid and Non-Hybrid LLMs}, 
-      author={Shivam Rawat and Lucie Flek and Florian Mai and Nicholas Kluge Corrêa},
+      title={Reasoning Primitives in Hybrid and Non-Hybrid LLMs: Do Architectural Differences Yield Advantages in State-Tracking and Recall?}, 
+      author={Shivam Rawat and Lucie Flek and Florian Mai and Nicholas Kluge Corr{\^e}a},
       year={2026},
       eprint={2604.21454},
       archivePrefix={arXiv},
