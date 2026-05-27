@@ -141,7 +141,7 @@ If you are extending the benchmark for the paper, keep the task design principle
 ```bibtex
 @misc{rawat2026reasoningprimitiveshybridnonhybrid,
       title={Reasoning Primitives in Hybrid and Non-Hybrid LLMs: Do Architectural Differences Yield Advantages in State-Tracking and Recall?}, 
-      author={Shivam Rawat and Lucie Flek and Florian Mai and Nicholas Kluge Corr{\^e}a},
+      author={Shivam Rawat and Lucie Flek and Florian Mai and Nicholas Kluge Corrêa},
       year={2026},
       eprint={2604.21454},
       archivePrefix={arXiv},
